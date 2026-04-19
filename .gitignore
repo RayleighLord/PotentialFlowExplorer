@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.playwright-cli/
+output/playwright/
+output/showcase/*
+!output/showcase/record_showcase.mjs
+.vite/*
+!.vite/deps/
+.vite/deps/*
+!.vite/deps/package.json
