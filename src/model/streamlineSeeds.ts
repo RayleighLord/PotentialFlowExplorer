@@ -1,6 +1,6 @@
 import { computeVelocityJacobian } from "./analysis";
-import type { Bounds, FlowElement, FlowField, Guide, Point, StagnationPoint, StreamlineSeed } from "../types";
 import { isPointBlocked } from "./domain";
+import type { Bounds, FlowElement, FlowField, Guide, Point, StagnationPoint, StreamlineSeed } from "../types";
 
 const TAU = 2 * Math.PI;
 
@@ -10,7 +10,7 @@ export function generateAutoStreamlineSeeds(
   bounds: Bounds,
   guides: readonly Guide[],
   stagnationPoints: readonly StagnationPoint[] = [],
-  maxCount = 80
+  maxCount = 120
 ): StreamlineSeed[] {
   const visibleElements = elements.filter((element) => element.visible);
   if (visibleElements.length === 0) {
@@ -18,7 +18,7 @@ export function generateAutoStreamlineSeeds(
   }
 
   const span = Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
-  const minSpacing = Math.max(span / 120, 0.06);
+  const minSpacing = Math.max(span / 120, 0.05);
   const singularityBuffer = Math.max(span * 0.03, 0.08);
   const candidates = [
     ...createStagnationSeedCandidates(flowField, bounds, stagnationPoints),
@@ -49,7 +49,7 @@ function createElementSeedCandidates(element: FlowElement, bounds: Bounds): Poin
       return createUniformSeeds(element.angleDeg, bounds, span);
     case "source":
     case "sink":
-      return createSourceSinkSeeds(element.anchor, element.coreRadius, span, 14);
+      return createSourceSinkSeeds(element.anchor, element.coreRadius, span);
     case "doublet":
       return createDoubletSeeds(element.anchor, element.angleDeg, element.coreRadius, bounds, span);
     case "vortex":
@@ -71,19 +71,16 @@ function createUniformSeeds(angleDeg: number, bounds: Bounds, span: number): Poi
   const negativeSpan = distanceToBounds(origin, negate(normal), bounds) * 0.92;
   const positiveSpan = distanceToBounds(origin, normal, bounds) * 0.92;
   const totalCrossSpan = negativeSpan + positiveSpan;
-  const count = countFromSpan(totalCrossSpan, Math.max(span * 0.07, 0.52), 13, 28);
+  const count = countFromSpan(totalCrossSpan, Math.max(span * 0.06, 0.45), 14, 36);
 
-  return createLineCandidates(origin, normal, -negativeSpan, positiveSpan, count);
+  return createBalancedLineCandidates(origin, normal, -negativeSpan, positiveSpan, count);
 }
 
-function createSourceSinkSeeds(
-  anchor: Point,
-  coreRadius: number,
-  span: number,
-  count: number
-): Point[] {
+function createSourceSinkSeeds(anchor: Point, coreRadius: number, span: number): Point[] {
   const radius = Math.max(coreRadius * 6, span * 0.12);
-  return createRingCandidates(anchor, radius, count);
+  const circumference = TAU * radius;
+  const count = countFromSpan(circumference, Math.max(span * 0.06, 0.45), 14, 40);
+  return createBalancedRingCandidates(anchor, radius, count);
 }
 
 function createDoubletSeeds(
@@ -95,18 +92,15 @@ function createDoubletSeeds(
 ): Point[] {
   const axis = unitFromAngle(angleDeg);
   const radialDirection = perpendicular(axis);
-  const maxRadius = Math.min(
+  const outerRadius = Math.min(
     distanceToBounds(anchor, radialDirection, bounds),
     distanceToBounds(anchor, negate(radialDirection), bounds)
   ) * 0.88;
   const innerRadius = Math.max(coreRadius * 5, span * 0.07);
-  const outerRadius = Math.max(innerRadius + span * 0.12, maxRadius);
-  const countPerSide = countFromSpan(outerRadius - innerRadius, Math.max(span * 0.075, 0.48), 6, 14);
-
-  return [
-    ...createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, countPerSide),
-    ...createRadialCandidates(anchor, negate(radialDirection), innerRadius, outerRadius, countPerSide)
-  ];
+  const countPerSide = countFromSpan(outerRadius - innerRadius, Math.max(span * 0.07, 0.45), 6, 18);
+  const positive = createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, countPerSide);
+  const negative = createRadialCandidates(anchor, negate(radialDirection), innerRadius, outerRadius, countPerSide);
+  return interleavePoints(positive, negative);
 }
 
 function createVortexSeeds(
@@ -121,8 +115,7 @@ function createVortexSeeds(
     innerRadius + span * 0.18,
     distanceToBounds(anchor, radialDirection, bounds) * 0.9
   );
-  const count = countFromSpan(outerRadius - innerRadius, Math.max(span * 0.075, 0.48), 7, 14);
-
+  const count = countFromSpan(outerRadius - innerRadius, Math.max(span * 0.07, 0.45), 8, 18);
   return createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, count);
 }
 
@@ -136,7 +129,7 @@ function createStagnationSeedCandidates(
   }
 
   const span = Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
-  const offset = clamp(span * 0.02, 0.06, 0.18);
+  const offset = clamp(span * 0.018, 0.05, 0.15);
   const candidates: Point[] = [];
 
   for (const point of stagnationPoints) {
@@ -147,14 +140,8 @@ function createStagnationSeedCandidates(
 
     for (const direction of realEigenDirections(jacobian)) {
       candidates.push(
-        {
-          x: point.x + direction.x * offset,
-          y: point.y + direction.y * offset
-        },
-        {
-          x: point.x - direction.x * offset,
-          y: point.y - direction.y * offset
-        }
+        { x: point.x + direction.x * offset, y: point.y + direction.y * offset },
+        { x: point.x - direction.x * offset, y: point.y - direction.y * offset }
       );
     }
   }
@@ -162,34 +149,32 @@ function createStagnationSeedCandidates(
   return candidates;
 }
 
-function createRingCandidates(center: Point, radius: number, count: number): Point[] {
-  const points: Point[] = [];
-  for (let index = 0; index < count; index += 1) {
+function createBalancedRingCandidates(center: Point, radius: number, count: number): Point[] {
+  const orderedIndices = spreadOrderIndices(count);
+  return orderedIndices.map((index) => {
     const angle = (index / count) * TAU;
-    points.push({
+    return {
       x: center.x + radius * Math.cos(angle),
       y: center.y + radius * Math.sin(angle)
-    });
-  }
-  return points;
+    };
+  });
 }
 
-function createLineCandidates(
+function createBalancedLineCandidates(
   origin: Point,
   direction: Point,
   startOffset: number,
   endOffset: number,
   count: number
 ): Point[] {
-  const points: Point[] = [];
-  for (let index = 0; index < count; index += 1) {
-    const offset = interpolate(startOffset, endOffset, index / Math.max(count - 1, 1));
-    points.push({
-      x: origin.x + direction.x * offset,
-      y: origin.y + direction.y * offset
-    });
-  }
-  return points;
+  const offsets = Array.from({ length: count }, (_, index) =>
+    interpolate(startOffset, endOffset, index / Math.max(count - 1, 1))
+  );
+
+  return centerOutIndices(count).map((index) => ({
+    x: origin.x + direction.x * offsets[index],
+    y: origin.y + direction.y * offsets[index]
+  }));
 }
 
 function createRadialCandidates(
@@ -201,6 +186,7 @@ function createRadialCandidates(
 ): Point[] {
   const clampedOuter = Math.max(outerRadius, innerRadius);
   const points: Point[] = [];
+
   for (let index = 0; index < count; index += 1) {
     const radius = interpolate(innerRadius, clampedOuter, index / Math.max(count - 1, 1));
     points.push({
@@ -208,6 +194,7 @@ function createRadialCandidates(
       y: anchor.y + direction.y * radius
     });
   }
+
   return points;
 }
 
@@ -261,7 +248,6 @@ function preferredRadialDirection(anchor: Point, bounds: Bounds): Point {
 
   let bestDirection = directions[0];
   let bestDistance = -1;
-
   for (const direction of directions) {
     const distance = distanceToBounds(anchor, direction, bounds);
     if (distance > bestDistance) {
@@ -269,7 +255,6 @@ function preferredRadialDirection(anchor: Point, bounds: Bounds): Point {
       bestDistance = distance;
     }
   }
-
   return bestDirection;
 }
 
@@ -355,12 +340,7 @@ function countFromSpan(span: number, targetSpacing: number, minCount: number, ma
   return clamp(Math.ceil(span / Math.max(targetSpacing, 1e-6)) + 1, minCount, maxCount);
 }
 
-function realEigenDirections(jacobian: {
-  ux: number;
-  uy: number;
-  vx: number;
-  vy: number;
-}): Point[] {
+function realEigenDirections(jacobian: { ux: number; uy: number; vx: number; vy: number }): Point[] {
   const trace = jacobian.ux + jacobian.vy;
   const determinant = jacobian.ux * jacobian.vy - jacobian.uy * jacobian.vx;
   const discriminant = trace * trace - 4 * determinant;
@@ -394,12 +374,7 @@ function realEigenDirections(jacobian: {
 }
 
 function eigenvectorForEigenvalue(
-  jacobian: {
-    ux: number;
-    uy: number;
-    vx: number;
-    vy: number;
-  },
+  jacobian: { ux: number; uy: number; vx: number; vy: number },
   eigenvalue: number
 ): Point | null {
   let vector: Point | null = null;
@@ -433,6 +408,84 @@ function eigenvectorForEigenvalue(
     x: vector.x / norm,
     y: vector.y / norm
   };
+}
+
+function centerOutIndices(count: number): number[] {
+  if (count <= 0) {
+    return [];
+  }
+
+  const indices: number[] = [];
+  const lowerCenter = Math.floor((count - 1) / 2);
+  const upperCenter = Math.ceil((count - 1) / 2);
+  indices.push(lowerCenter);
+  if (upperCenter !== lowerCenter) {
+    indices.push(upperCenter);
+  }
+
+  for (let offset = 1; indices.length < count; offset += 1) {
+    const left = lowerCenter - offset;
+    const right = upperCenter + offset;
+    if (right < count) {
+      indices.push(right);
+    }
+    if (left >= 0) {
+      indices.push(left);
+    }
+  }
+
+  return indices;
+}
+
+function spreadOrderIndices(count: number): number[] {
+  const ordered: number[] = [];
+  const seen = new Set<number>();
+
+  for (let index = 0; index < count; index += 1) {
+    const candidate = Math.floor(radicalInverseBase2(index) * count) % count;
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      ordered.push(candidate);
+    }
+  }
+
+  for (let index = 0; index < count; index += 1) {
+    if (!seen.has(index)) {
+      ordered.push(index);
+    }
+  }
+
+  return ordered;
+}
+
+function radicalInverseBase2(index: number): number {
+  let value = 0;
+  let denominator = 2;
+  let current = index;
+
+  while (current > 0) {
+    value += (current % 2) / denominator;
+    current = Math.floor(current / 2);
+    denominator *= 2;
+  }
+
+  return value;
+}
+
+function interleavePoints(left: readonly Point[], right: readonly Point[]): Point[] {
+  const points: Point[] = [];
+  const count = Math.max(left.length, right.length);
+
+  for (let index = 0; index < count; index += 1) {
+    if (index < left.length) {
+      points.push(left[index]);
+    }
+    if (index < right.length) {
+      points.push(right[index]);
+    }
+  }
+
+  return points;
 }
 
 function clamp(value: number, min: number, max: number): number {

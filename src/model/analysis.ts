@@ -58,56 +58,71 @@ export function findStagnationPoints(
     return [];
   }
 
-  const gridSize = options.gridSize ?? 11;
+  const gridSize = options.gridSize ?? 15;
   const tolerance = options.tolerance ?? 1e-5;
   const maxIterations = options.maxIterations ?? 22;
+  const span = Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
   const dedupeTolerance =
-    options.dedupeTolerance ?? Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin) * 0.02;
-  const singularityExclusionRadius =
-    options.singularityExclusionRadius ?? Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin) * 0.05;
+    options.dedupeTolerance ?? span * 0.02;
+  const minimumSingularityExclusionRadius =
+    options.singularityExclusionRadius ?? Math.max(span * 0.012, 0.02);
 
   const candidates: StagnationPoint[] = [];
   const xStep = (bounds.xMax - bounds.xMin) / Math.max(gridSize - 1, 1);
   const yStep = (bounds.yMax - bounds.yMin) / Math.max(gridSize - 1, 1);
+  const offsetFractions = [0, 1 / 3, 2 / 3] as const;
+  const seedOffsets = offsetFractions.flatMap((y) =>
+    offsetFractions.map((x) => ({ x, y }))
+  );
 
-  for (let row = 0; row < gridSize; row += 1) {
-    for (let column = 0; column < gridSize; column += 1) {
-      const seed = {
-        x: bounds.xMin + column * xStep,
-        y: bounds.yMin + row * yStep
-      };
+  for (const offset of seedOffsets) {
+    const rowCount = offset.y === 0 ? gridSize : Math.max(gridSize - 1, 1);
+    const columnCount = offset.x === 0 ? gridSize : Math.max(gridSize - 1, 1);
 
-      const speed = flowField.velocityAt(seed).speed;
-      if (!Number.isFinite(speed)) {
-        continue;
+    for (let row = 0; row < rowCount; row += 1) {
+      for (let column = 0; column < columnCount; column += 1) {
+        const seed = {
+          x: bounds.xMin + (column + offset.x) * xStep,
+          y: bounds.yMin + (row + offset.y) * yStep
+        };
+
+        const speed = flowField.velocityAt(seed).speed;
+        if (!Number.isFinite(speed)) {
+          continue;
+        }
+
+        const nearestSingularity = nearestSingularityContext(
+          flowField,
+          seed,
+          minimumSingularityExclusionRadius
+        );
+        if (nearestSingularity.distance < nearestSingularity.exclusionRadius) {
+          continue;
+        }
+
+        const candidate = refineStagnationPoint(
+          flowField,
+          bounds,
+          seed,
+          tolerance,
+          maxIterations,
+          minimumSingularityExclusionRadius
+        );
+
+        if (!candidate) {
+          continue;
+        }
+
+        if (!isPointInsideBounds(candidate, bounds)) {
+          continue;
+        }
+
+        if (candidates.some((existing) => distanceBetween(existing, candidate) <= dedupeTolerance)) {
+          continue;
+        }
+
+        candidates.push(candidate);
       }
-
-      if (flowField.distanceToNearestSingularity(seed) < singularityExclusionRadius) {
-        continue;
-      }
-
-      const candidate = refineStagnationPoint(
-        flowField,
-        bounds,
-        seed,
-        tolerance,
-        maxIterations,
-        singularityExclusionRadius
-      );
-
-      if (!candidate) {
-        continue;
-      }
-
-      if (!isPointInsideBounds(candidate, bounds)) {
-        continue;
-      }
-
-      if (candidates.some((existing) => distanceBetween(existing, candidate) <= dedupeTolerance)) {
-        continue;
-      }
-
-      candidates.push(candidate);
     }
   }
 
@@ -147,12 +162,17 @@ function refineStagnationPoint(
   seed: Point,
   tolerance: number,
   maxIterations: number,
-  singularityExclusionRadius: number
+  minimumSingularityExclusionRadius: number
 ): StagnationPoint | null {
   let current = { ...seed };
 
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-    if (flowField.distanceToNearestSingularity(current) < singularityExclusionRadius) {
+    const nearestSingularity = nearestSingularityContext(
+      flowField,
+      current,
+      minimumSingularityExclusionRadius
+    );
+    if (nearestSingularity.distance < nearestSingularity.exclusionRadius) {
       return null;
     }
 
@@ -198,6 +218,32 @@ function refineStagnationPoint(
   return {
     ...current,
     residual: terminal.speed
+  };
+}
+
+function nearestSingularityContext(
+  flowField: FlowField,
+  point: Point,
+  minimumExclusionRadius: number
+): { distance: number; exclusionRadius: number } {
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  let exclusionRadius = minimumExclusionRadius;
+
+  for (const element of flowField.elements) {
+    if (element.kind === "uniform") {
+      continue;
+    }
+
+    const distance = Math.hypot(point.x - element.anchor.x, point.y - element.anchor.y);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      exclusionRadius = Math.max(minimumExclusionRadius, element.coreRadius * 1.5);
+    }
+  }
+
+  return {
+    distance: nearestDistance,
+    exclusionRadius
   };
 }
 

@@ -11,15 +11,10 @@ interface DragState {
   hasMoved: boolean;
 }
 
-interface PanState {
-  originClient: Point;
-}
-
-type InteractionMode = ClickMode | "pan";
 const DRAG_START_THRESHOLD_PX = 4;
 
 export function startApp(): void {
-  const stage = getElement<HTMLDivElement>("stage");
+  clearLegacyShellSizing();
   const sceneCanvas = getElement<HTMLCanvasElement>("scene-canvas");
   const flowCanvas = getElement<HTMLCanvasElement>("flow-canvas");
   const exampleSelect = getElement<HTMLSelectElement>("example-select");
@@ -52,7 +47,6 @@ export function startApp(): void {
   const particleDensityInput = getElement<HTMLInputElement>("particle-density-input");
   const sampleStreamlinesButton = getElement<HTMLButtonElement>("sample-streamlines-button");
   const clearStreamlinesButton = getElement<HTMLButtonElement>("clear-streamlines-button");
-  const resetViewButton = getElement<HTMLButtonElement>("reset-view-button");
   const clearElementsButton = getElement<HTMLButtonElement>("clear-elements-button");
   const elementCount = getElement<HTMLElement>("element-count");
   const elementList = getElement<HTMLElement>("element-list");
@@ -64,14 +58,12 @@ export function startApp(): void {
 
   const controller = new AppController();
   const renderer = new PotentialFlowRenderer(sceneCanvas, flowCanvas);
-  renderer.setAspectChangeListener((aspect) => controller.setViewportAspect(aspect));
+  renderer.setViewportMetricsListener((metrics) => controller.setViewportMetrics(metrics));
   renderer.attachResizeObserver();
   renderer.start();
 
   let currentViewModel = controller.getViewModel();
   let dragState: DragState | null = null;
-  let panState: PanState | null = null;
-  let spacePanActive = false;
 
   populateExampleSelect(exampleSelect);
   populateToolSelect(toolSelect);
@@ -111,7 +103,7 @@ export function startApp(): void {
       stagnationCount,
       stagnationList
     }, controller);
-    syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, !!dragState, !!panState, spacePanActive);
+    syncCanvasCursor(flowCanvas, !!dragState);
   });
 
   exampleSelect.addEventListener("change", () => {
@@ -155,36 +147,7 @@ export function startApp(): void {
 
   sampleStreamlinesButton.addEventListener("click", () => controller.sampleStreamlines());
   clearStreamlinesButton.addEventListener("click", () => controller.clearStreamlines());
-  resetViewButton.addEventListener("click", () => controller.resetView());
   clearElementsButton.addEventListener("click", () => controller.clearElements());
-
-  window.addEventListener("keydown", (event) => {
-    if (event.code !== "Space" || isEditableTarget(event.target)) {
-      return;
-    }
-
-    if (!spacePanActive) {
-      spacePanActive = true;
-      syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, !!dragState, !!panState, spacePanActive);
-    }
-    event.preventDefault();
-  });
-
-  window.addEventListener("keyup", (event) => {
-    if (event.code !== "Space") {
-      return;
-    }
-
-    spacePanActive = false;
-    syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, !!dragState, !!panState, spacePanActive);
-  });
-
-  window.addEventListener("blur", () => {
-    dragState = null;
-    panState = null;
-    spacePanActive = false;
-    syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, false, false, false);
-  });
 
   elementList.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
@@ -211,21 +174,11 @@ export function startApp(): void {
     }
 
     const hit = renderer.hitTestElement(world);
-    const interactionMode = resolveInteractionMode(currentViewModel.state.clickMode, event.shiftKey, spacePanActive);
 
     if (event.button === 2) {
       if (hit) {
         controller.deleteElement(hit.id);
       }
-      return;
-    }
-
-    if (event.button === 1 || (event.button === 0 && interactionMode === "pan")) {
-      panState = {
-        originClient: { x: event.clientX, y: event.clientY }
-      };
-      flowCanvas.setPointerCapture(event.pointerId);
-      syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, !!dragState, true, spacePanActive);
       return;
     }
 
@@ -243,17 +196,18 @@ export function startApp(): void {
         hasMoved: false
       };
       flowCanvas.setPointerCapture(event.pointerId);
-      syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, false, !!panState, spacePanActive);
+      syncCanvasCursor(flowCanvas, false);
       return;
     }
 
-    const finalPoint = currentViewModel.state.snapToGrid && interactionMode === "element"
-      ? snapPointToGrid(world, renderer.estimateGridStep())
+    const clickMode = event.shiftKey ? flipClickMode(currentViewModel.state.clickMode) : currentViewModel.state.clickMode;
+    const finalPoint = currentViewModel.state.snapToGrid && clickMode === "element"
+      ? snapPointToGrid(world, renderer.estimateSnapStep())
       : world;
 
-    if (interactionMode === "streamline") {
+    if (clickMode === "streamline") {
       controller.addStreamlineSeed(finalPoint);
-    } else if (interactionMode === "element") {
+    } else {
       controller.addElementAt(finalPoint);
     }
   });
@@ -280,28 +234,14 @@ export function startApp(): void {
           ...dragState,
           hasMoved: true
         };
-        syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, true, !!panState, spacePanActive);
+        syncCanvasCursor(flowCanvas, true);
       }
 
       const anchor = currentViewModel.state.snapToGrid
-        ? snapPointToGrid(world, renderer.estimateGridStep())
+        ? snapPointToGrid(world, renderer.estimateSnapStep())
         : world;
       controller.moveElement(dragState.elementId, anchor);
       return;
-    }
-
-    if (panState) {
-      const previousWorld = renderer.clientToWorld(panState.originClient.x, panState.originClient.y);
-      if (!previousWorld || !world) {
-        return;
-      }
-      controller.panBy({
-        x: previousWorld.x - world.x,
-        y: previousWorld.y - world.y
-      });
-      panState = {
-        originClient: { x: event.clientX, y: event.clientY }
-      };
     }
   });
 
@@ -310,20 +250,18 @@ export function startApp(): void {
       controller.setSelectedElementId(null);
     }
     dragState = null;
-    panState = null;
     if (flowCanvas.hasPointerCapture(event.pointerId)) {
       flowCanvas.releasePointerCapture(event.pointerId);
     }
-    syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, false, false, spacePanActive);
+    syncCanvasCursor(flowCanvas, false);
   });
 
   flowCanvas.addEventListener("pointercancel", (event) => {
     dragState = null;
-    panState = null;
     if (flowCanvas.hasPointerCapture(event.pointerId)) {
       flowCanvas.releasePointerCapture(event.pointerId);
     }
-    syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, false, false, spacePanActive);
+    syncCanvasCursor(flowCanvas, false);
   });
 
   flowCanvas.addEventListener("pointerleave", () => {
@@ -336,29 +274,8 @@ export function startApp(): void {
     event.preventDefault();
   });
 
-  flowCanvas.addEventListener(
-    "wheel",
-    (event) => {
-      const world = renderer.clientToWorld(event.clientX, event.clientY);
-      if (!world) {
-        return;
-      }
-      event.preventDefault();
-      const zoomFactor = event.deltaY > 0 ? 1.12 : 1 / 1.12;
-      controller.zoomAt(world, zoomFactor);
-    },
-    { passive: false }
-  );
-
   flowCanvas.addEventListener("dblclick", (event) => {
-    const world = renderer.clientToWorld(event.clientX, event.clientY);
-    if (!world) {
-      return;
-    }
-    if (renderer.hitTestElement(world)) {
-      return;
-    }
-    controller.resetView();
+    event.preventDefault();
   });
 }
 
@@ -429,11 +346,11 @@ function syncControls(
 
   elements.toolSelect.value = viewModel.state.placement.kind;
   elements.magnitudeLabel.textContent = primaryMagnitudeLabel(viewModel.state.placement.kind);
-  elements.magnitudeInput.value = `${viewModel.state.placement.magnitude}`;
+  syncNumericInput(elements.magnitudeInput, viewModel.state.placement.magnitude);
   elements.angleField.classList.toggle("is-hidden", !hasAngleParameter(viewModel.state.placement.kind));
-  elements.angleInput.value = `${viewModel.state.placement.angleDeg}`;
+  syncNumericInput(elements.angleInput, viewModel.state.placement.angleDeg);
   elements.coreRadiusField.classList.toggle("is-hidden", !hasCoreRadiusParameter(viewModel.state.placement.kind));
-  elements.coreRadiusInput.value = `${viewModel.state.placement.coreRadius}`;
+  syncNumericInput(elements.coreRadiusInput, viewModel.state.placement.coreRadius);
 
   syncModeButtons(viewModel.state.clickMode, elements.modeElementButton, elements.modeStreamlineButton);
 
@@ -447,11 +364,11 @@ function syncControls(
     elements.selectedSummary.classList.remove("is-empty");
     elements.selectedInspector.classList.remove("is-disabled");
     elements.selectedMagnitudeLabel.textContent = primaryMagnitudeLabel(selectedElement.kind);
-    elements.selectedMagnitudeInput.value = `${getPrimaryMagnitude(selectedElement)}`;
+    syncNumericInput(elements.selectedMagnitudeInput, getPrimaryMagnitude(selectedElement));
     elements.selectedAngleField.classList.toggle("is-hidden", !hasAngleParameter(selectedElement.kind));
-    elements.selectedAngleInput.value = `${getElementAngleDeg(selectedElement)}`;
+    syncNumericInput(elements.selectedAngleInput, getElementAngleDeg(selectedElement));
     elements.selectedCoreRadiusField.classList.toggle("is-hidden", !hasCoreRadiusParameter(selectedElement.kind));
-    elements.selectedCoreRadiusInput.value = `${getElementCoreRadius(selectedElement)}`;
+    syncNumericInput(elements.selectedCoreRadiusInput, getElementCoreRadius(selectedElement));
   }
 
   elements.animationToggle.checked = viewModel.state.animationEnabled;
@@ -523,52 +440,37 @@ function syncModeButtons(
   streamlineButton.classList.toggle("is-active", clickMode === "streamline");
 }
 
-function resolveInteractionMode(mode: ClickMode, shiftKey: boolean, spacePanActive: boolean): InteractionMode {
-  if (spacePanActive) {
-    return "pan";
-  }
-
-  if (!shiftKey) {
-    return mode;
-  }
-
-  switch (mode) {
-    case "element":
-      return "streamline";
-    case "streamline":
-      return "element";
-    default:
-      return assertNever(mode);
-  }
+function flipClickMode(mode: ClickMode): ClickMode {
+  return mode === "element" ? "streamline" : "element";
 }
 
-function syncCanvasCursor(
-  canvas: HTMLCanvasElement,
-  clickMode: ClickMode,
-  isDraggingElement: boolean,
-  isPanning: boolean,
-  spacePanActive: boolean
-): void {
-  if (isDraggingElement || isPanning) {
+function syncCanvasCursor(canvas: HTMLCanvasElement, isDraggingElement: boolean): void {
+  if (isDraggingElement) {
     canvas.style.cursor = "grabbing";
-    return;
-  }
-
-  if (spacePanActive) {
-    canvas.style.cursor = "grab";
     return;
   }
 
   canvas.style.cursor = "crosshair";
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  const element = target as HTMLElement | null;
-  return !!element?.closest("input, textarea, select, button, [contenteditable='true']");
+function syncNumericInput(input: HTMLInputElement, value: number): void {
+  if (document.activeElement === input) {
+    return;
+  }
+
+  input.value = `${value}`;
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled value: ${String(value)}`);
+function clearLegacyShellSizing(): void {
+  const root = document.querySelector<HTMLElement>(".app-root");
+  if (!root) {
+    return;
+  }
+
+  root.style.left = "";
+  root.style.top = "";
+  root.style.width = "";
+  root.style.height = "";
 }
 
 function getElement<T extends HTMLElement>(id: string): T {

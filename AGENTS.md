@@ -25,20 +25,16 @@ The product goals are:
 ## Interaction Decisions
 
 - The app should open on an empty grid by default, with no example loaded automatically.
-- Mouse wheel zoom should stay centered on the cursor.
-- Panning should use middle-mouse drag or `Space` + drag.
+- The visible world window should stay fixed; user zooming and panning are intentionally disabled.
 - Right-clicking on an element should delete the element under the cursor.
-- Camera motion should be bounded to the exploration region defined by the initial view center and the maximum zoomed-out window.
 - Placing a new element should not automatically select it.
 - Clicking a selected element again should deselect it if the user is not dragging.
-- Reset-view behavior should only trigger from double-clicking empty canvas, not from double-clicking an element.
 
 ## Streamline Decisions
 
 - Streamlines should look smooth rather than obviously piecewise-linear; favor enough integration resolution and gentle simplification.
-- Auto-generated streamlines should keep a roughly consistent on-screen density across zoom levels.
-- Manual streamline seeds should remain fixed in world coordinates when panning and zooming.
-- Examples are allowed to use explicit preset streamline seeds when that produces a better teaching layout than generic auto-seeding.
+- Auto-generated streamlines should fill the fixed visible region directly rather than adapting to camera movement.
+- Preset examples may use explicit initial streamline seeds when that gives a clearer teaching layout than generic auto-seeding.
 - The cylinder-style examples should use the same upstream cross-stream seeding idea as uniform flow.
 - Source and sink seeding should emphasize even circumferential spacing.
 - Uniform-flow seeding should emphasize even cross-stream spacing.

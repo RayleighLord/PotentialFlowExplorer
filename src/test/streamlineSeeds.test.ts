@@ -57,38 +57,9 @@ describe("generateAutoStreamlineSeeds", () => {
     const ys = seeds.map((seed) => seed.y).sort((left, right) => left - right);
     const spacings = ys.slice(1).map((value, index) => value - ys[index]);
 
-    expect(seeds.length).toBeGreaterThanOrEqual(10);
+    expect(seeds.length).toBeGreaterThanOrEqual(12);
     expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(0.05);
     expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThan(0.08);
-  });
-
-  it("keeps a similar uniform-flow seed count while extending coverage to a larger window", () => {
-    const uniform = {
-      id: "uniform",
-      kind: "uniform" as const,
-      anchor: { x: 0, y: 0 },
-      visible: true,
-      speed: 1,
-      angleDeg: 0
-    };
-
-    const smallSeeds = generateAutoStreamlineSeeds(
-      createFlowField([uniform]),
-      [uniform],
-      { xMin: -4, xMax: 4, yMin: -4, yMax: 4 },
-      []
-    );
-    const largeSeeds = generateAutoStreamlineSeeds(
-      createFlowField([uniform]),
-      [uniform],
-      { xMin: -10, xMax: 10, yMin: -10, yMax: 10 },
-      []
-    );
-
-    expect(Math.abs(largeSeeds.length - smallSeeds.length)).toBeLessThanOrEqual(2);
-    expect(Math.max(...largeSeeds.map((seed) => Math.abs(seed.y)))).toBeGreaterThan(
-      Math.max(...smallSeeds.map((seed) => Math.abs(seed.y))) + 1
-    );
   });
 
   it("places vortex seeds along one radial ray with changing radius", () => {
@@ -112,7 +83,7 @@ describe("generateAutoStreamlineSeeds", () => {
     const radii = seeds.map((seed) => Math.hypot(seed.x, seed.y)).sort((left, right) => left - right);
     const spacings = radii.slice(1).map((value, index) => value - radii[index]);
 
-    expect(seeds.length).toBeGreaterThanOrEqual(6);
+    expect(seeds.length).toBeGreaterThanOrEqual(7);
     expect(Math.max(...rayAngles) - Math.min(...rayAngles)).toBeLessThan(0.05);
     expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThan(0.18);
   });

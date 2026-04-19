@@ -12,6 +12,7 @@ import {
 const BACKGROUND_COLOR = "#081019";
 const PANEL_DARK = "#0c1522";
 const GRID_MINOR = "rgba(116, 170, 255, 0.06)";
+const GRID_MID = "rgba(125, 186, 255, 0.1)";
 const GRID_MAJOR = "rgba(134, 193, 255, 0.13)";
 const AXIS_COLOR = "rgba(201, 230, 255, 0.22)";
 const STREAMLINE_COLOR = "rgba(120, 197, 255, 0.55)";
@@ -25,6 +26,7 @@ const MARKER_ARROW_LENGTH_WORLD = 0.142;
 const SELECTED_STROKE = "rgb(255, 255, 255)";
 
 export class PotentialFlowRenderer {
+  private readonly stageElement: HTMLElement;
   private readonly sceneCanvas: HTMLCanvasElement;
   private readonly flowCanvas: HTMLCanvasElement;
   private readonly sceneContext: CanvasRenderingContext2D;
@@ -35,8 +37,15 @@ export class PotentialFlowRenderer {
   private lastTimestamp: number | null = null;
   private animationFrameHandle = 0;
   private onAspectChange?: (aspect: number) => void;
+  private onViewportMetricsChange?: (metrics: { width: number; height: number; aspect: number }) => void;
 
   constructor(sceneCanvas: HTMLCanvasElement, flowCanvas: HTMLCanvasElement) {
+    const stageElement = sceneCanvas.parentElement;
+    if (!stageElement) {
+      throw new Error("Scene canvas must be mounted inside a stage element.");
+    }
+
+    this.stageElement = stageElement;
     this.sceneCanvas = sceneCanvas;
     this.flowCanvas = flowCanvas;
 
@@ -60,11 +69,20 @@ export class PotentialFlowRenderer {
     this.onAspectChange = listener;
   }
 
+  setViewportMetricsListener(listener: (metrics: { width: number; height: number; aspect: number }) => void): void {
+    this.onViewportMetricsChange = listener;
+  }
+
   attachResizeObserver(): void {
-    const resize = () => this.resize();
+    const resize = () => {
+      const resized = this.syncSurfaceSize();
+      if (resized && this.viewModel) {
+        this.render(this.viewModel);
+      }
+    };
     resize();
     const observer = new ResizeObserver(resize);
-    observer.observe(this.sceneCanvas);
+    observer.observe(this.stageElement);
     window.addEventListener("resize", resize);
   }
 
@@ -75,9 +93,14 @@ export class PotentialFlowRenderer {
 
     const tick = (timestamp: number) => {
       this.animationFrameHandle = window.requestAnimationFrame(tick);
+      const resized = this.syncSurfaceSize();
       if (!this.viewModel) {
         this.lastTimestamp = timestamp;
         return;
+      }
+
+      if (resized) {
+        this.render(this.viewModel);
       }
 
       const deltaSeconds = this.lastTimestamp === null ? 1 / 60 : Math.min((timestamp - this.lastTimestamp) / 1000, 0.05);
@@ -105,26 +128,45 @@ export class PotentialFlowRenderer {
 
   render(viewModel: ViewModel): void {
     this.viewModel = viewModel;
+    this.syncSurfaceSize();
     this.viewport = createViewport(this.viewport.width, this.viewport.height, this.viewport.dpr, viewModel.state.view);
     this.renderScene();
     this.flowContext.clearRect(0, 0, this.viewport.width, this.viewport.height);
-
-    if (viewModel.state.animationEnabled) {
-      this.particleEngine.reseed(this.viewport, viewModel.flowField, viewModel.state.guides);
-    }
   }
 
   resize(): void {
-    const rect = this.sceneCanvas.getBoundingClientRect();
+    const resized = this.syncSurfaceSize();
+    if (resized && this.viewModel) {
+      this.render(this.viewModel);
+    }
+  }
+
+  private syncSurfaceSize(): boolean {
+    const rect = this.stageElement.getBoundingClientRect();
     const dpr = Math.max(window.devicePixelRatio || 1, 1);
     const width = Math.max(Math.round(rect.width), 1);
     const height = Math.max(Math.round(rect.height), 1);
+    const targetPixelWidth = Math.max(Math.round(width * dpr), 1);
+    const targetPixelHeight = Math.max(Math.round(height * dpr), 1);
+
+    const unchanged =
+      this.viewport.width === width &&
+      this.viewport.height === height &&
+      Math.abs(this.viewport.dpr - dpr) < 1e-4 &&
+      this.sceneCanvas.width === targetPixelWidth &&
+      this.sceneCanvas.height === targetPixelHeight &&
+      this.flowCanvas.width === targetPixelWidth &&
+      this.flowCanvas.height === targetPixelHeight;
+
+    if (unchanged) {
+      return false;
+    }
 
     for (const canvas of [this.sceneCanvas, this.flowCanvas]) {
-      canvas.width = Math.max(Math.round(width * dpr), 1);
-      canvas.height = Math.max(Math.round(height * dpr), 1);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      canvas.width = targetPixelWidth;
+      canvas.height = targetPixelHeight;
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
     }
 
     this.sceneContext.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -136,13 +178,15 @@ export class PotentialFlowRenderer {
       aspect: width / Math.max(height, 1)
     });
 
+    const aspect = width / Math.max(height, 1);
     if (this.onAspectChange) {
-      this.onAspectChange(width / Math.max(height, 1));
+      this.onAspectChange(aspect);
+    }
+    if (this.onViewportMetricsChange) {
+      this.onViewportMetricsChange({ width, height, aspect });
     }
 
-    if (this.viewModel) {
-      this.render(this.viewModel);
-    }
+    return true;
   }
 
   clientToWorld(clientX: number, clientY: number): Point | null {
@@ -185,6 +229,10 @@ export class PotentialFlowRenderer {
 
   estimateGridStep(): number {
     return niceGridStep(this.viewport.bounds);
+  }
+
+  estimateSnapStep(): number {
+    return this.estimateGridStep() / 2;
   }
 
   screenPointForWorld(worldPoint: Point): Point {
@@ -300,12 +348,14 @@ export class PotentialFlowRenderer {
 
   private renderGrid(context: CanvasRenderingContext2D): void {
     const majorStep = niceGridStep(this.viewport.bounds);
-    const minorStep = majorStep / 5;
+    const minorStep = majorStep / 6;
+    const snapStep = majorStep / 2;
 
     context.save();
     context.lineWidth = 1;
 
     drawGridLines(context, this.viewport, minorStep, GRID_MINOR);
+    drawGridLines(context, this.viewport, snapStep, GRID_MID);
     drawGridLines(context, this.viewport, majorStep, GRID_MAJOR);
 
     if (this.viewport.bounds.xMin <= 0 && this.viewport.bounds.xMax >= 0) {

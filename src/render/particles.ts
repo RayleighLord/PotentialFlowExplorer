@@ -1,5 +1,5 @@
 import { isPointBlocked } from "../model/domain";
-import type { FieldStats, FlowField, Guide, Point } from "../types";
+import type { FieldStats, FlowElement, FlowField, Guide, Point } from "../types";
 import type { Viewport } from "./viewport";
 
 interface Particle {
@@ -9,17 +9,67 @@ interface Particle {
   maxAge: number;
 }
 
+const SOURCE_SPAWN_PROBABILITY = 0.22;
+
+type SourceElement = FlowElement & {
+  kind: "source";
+  strength: number;
+  coreRadius: number;
+};
+
+type DoubletElement = FlowElement & {
+  kind: "doublet";
+  strength: number;
+  angleDeg: number;
+  coreRadius: number;
+};
+
+type EmissiveElement = SourceElement | DoubletElement;
+type SinkElement = FlowElement & {
+  kind: "sink";
+  strength: number;
+  coreRadius: number;
+};
+type CapturingElement = SinkElement | DoubletElement;
+
 export class ParticleEngine {
   private particles: Particle[] = [];
-  private cachedCount = 0;
+  private lastViewportSignature = "";
 
   reset(count: number, viewport: Viewport, flowField: FlowField, guides: readonly Guide[]): void {
-    if (count === this.cachedCount && this.particles.length === count) {
+    const viewportSignature = signatureForViewport(viewport);
+    const viewportChanged = viewportSignature !== this.lastViewportSignature;
+    this.lastViewportSignature = viewportSignature;
+
+    if (count <= 0) {
+      this.particles = [];
       return;
     }
 
-    this.cachedCount = count;
-    this.particles = Array.from({ length: count }, () => createRandomParticle(viewport, flowField, guides));
+    if (this.particles.length === 0) {
+      this.particles = Array.from({ length: count }, () => createRandomParticle(viewport, flowField, guides));
+      return;
+    }
+
+    if (count > this.particles.length) {
+      this.particles.push(
+        ...Array.from({ length: count - this.particles.length }, () => createAmbientParticle(viewport, flowField, guides))
+      );
+    } else if (count < this.particles.length) {
+      this.particles.length = count;
+    }
+
+    if (!viewportChanged) {
+      return;
+    }
+
+    for (const particle of this.particles) {
+      if (isReusableAfterViewportChange(particle, viewport, flowField, guides)) {
+        continue;
+      }
+
+      respawnParticleAmbient(particle, viewport, flowField, guides);
+    }
   }
 
   reseed(viewport: Viewport, flowField: FlowField, guides: readonly Guide[]): void {
@@ -63,8 +113,19 @@ export class ParticleEngine {
       }
 
       const speedFactor = Math.min(velocity.speed, maxSpeedForMotion);
-      particle.x += velocity.u * motionScale * deltaSeconds;
-      particle.y += velocity.v * motionScale * deltaSeconds;
+      const velocityScale = velocity.speed > 1e-9 ? speedFactor / velocity.speed : 0;
+      const next = {
+        x: particle.x + velocity.u * velocityScale * motionScale * deltaSeconds,
+        y: particle.y + velocity.v * velocityScale * motionScale * deltaSeconds
+      };
+
+      if (shouldCaptureParticleNearSingularity(previous, next, flowField, viewport.worldHeight)) {
+        respawnParticle(particle, viewport, flowField, guides);
+        continue;
+      }
+
+      particle.x = next.x;
+      particle.y = next.y;
       particle.age += deltaSeconds;
 
       if (
@@ -104,7 +165,20 @@ function createRandomParticle(
   flowField: FlowField,
   guides: readonly Guide[]
 ): Particle {
+  const point = chooseParticleSpawnPoint(viewport, flowField, guides);
+  return createParticleState(point);
+}
+
+function createAmbientParticle(
+  viewport: Viewport,
+  flowField: FlowField,
+  guides: readonly Guide[]
+): Particle {
   const point = randomFreePoint(viewport, flowField, guides);
+  return createParticleState(point);
+}
+
+function createParticleState(point: Point): Particle {
   return {
     x: point.x,
     y: point.y,
@@ -119,11 +193,39 @@ function respawnParticle(
   flowField: FlowField,
   guides: readonly Guide[]
 ): void {
+  const point = chooseParticleSpawnPoint(viewport, flowField, guides);
+  particle.x = point.x;
+  particle.y = point.y;
+  particle.age = 0;
+  particle.maxAge = 6 + Math.random() * 8;
+}
+
+function respawnParticleAmbient(
+  particle: Particle,
+  viewport: Viewport,
+  flowField: FlowField,
+  guides: readonly Guide[]
+): void {
   const point = randomFreePoint(viewport, flowField, guides);
   particle.x = point.x;
   particle.y = point.y;
   particle.age = 0;
   particle.maxAge = 6 + Math.random() * 8;
+}
+
+function chooseParticleSpawnPoint(
+  viewport: Viewport,
+  flowField: FlowField,
+  guides: readonly Guide[]
+): Point {
+  if (Math.random() < SOURCE_SPAWN_PROBABILITY) {
+    const emitterPoint = randomEmitterSpawnPoint(viewport, flowField, guides);
+    if (emitterPoint) {
+      return emitterPoint;
+    }
+  }
+
+  return randomFreePoint(viewport, flowField, guides);
 }
 
 function randomFreePoint(
@@ -154,6 +256,255 @@ function randomFreePoint(
   };
 }
 
+function isReusableAfterViewportChange(
+  particle: Particle,
+  viewport: Viewport,
+  flowField: FlowField,
+  guides: readonly Guide[]
+): boolean {
+  if (![particle.x, particle.y, particle.age, particle.maxAge].every(Number.isFinite)) {
+    return false;
+  }
+
+  if (
+    particle.x < viewport.bounds.xMin ||
+    particle.x > viewport.bounds.xMax ||
+    particle.y < viewport.bounds.yMin ||
+    particle.y > viewport.bounds.yMax
+  ) {
+    return false;
+  }
+
+  if (isPointBlocked({ x: particle.x, y: particle.y }, guides)) {
+    return false;
+  }
+
+  return flowField.distanceToNearestSingularity({ x: particle.x, y: particle.y }) >= viewport.worldHeight * 0.012;
+}
+
+function randomEmitterSpawnPoint(
+  viewport: Viewport,
+  flowField: FlowField,
+  guides: readonly Guide[]
+): Point | null {
+  const emitters = flowField.elements.filter(isEmissiveElement);
+  if (emitters.length === 0) {
+    return null;
+  }
+
+  const totalWeight = emitters.reduce((sum, emitter) => sum + emitterWeight(emitter), 0);
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const emitter = pickWeightedEmitter(emitters, totalWeight);
+    const point = randomEmitterPoint(emitter, viewport.worldHeight);
+
+    if (isPointBlocked(point, guides)) {
+      continue;
+    }
+
+    if (
+      point.x < viewport.bounds.xMin ||
+      point.x > viewport.bounds.xMax ||
+      point.y < viewport.bounds.yMin ||
+      point.y > viewport.bounds.yMax
+    ) {
+      continue;
+    }
+
+    return point;
+  }
+
+  return null;
+}
+
+function randomEmitterPoint(emitter: EmissiveElement, worldHeight: number): Point {
+  switch (emitter.kind) {
+    case "source":
+      return randomPointAroundCenter(emitter.anchor, emitter.coreRadius, worldHeight);
+    case "doublet": {
+      const sourceCenter = doubletSourceCenter(emitter, worldHeight);
+      return randomPointAroundCenter(sourceCenter, emitter.coreRadius, worldHeight * 0.85);
+    }
+    default:
+      return assertNever(emitter);
+  }
+}
+
+function randomPointAroundCenter(center: Point, coreRadius: number, worldHeight: number): Point {
+  const angle = Math.random() * Math.PI * 2;
+  const minimumRadius = Math.max(worldHeight * 0.011, coreRadius * 0.95, 0.03);
+  const maximumRadius = Math.max(worldHeight * 0.018, coreRadius * 1.35, minimumRadius + 0.02);
+  const radiusT = Math.sqrt(Math.random());
+  const spawnRadius = minimumRadius + (maximumRadius - minimumRadius) * radiusT;
+
+  return {
+    x: center.x + spawnRadius * Math.cos(angle),
+    y: center.y + spawnRadius * Math.sin(angle)
+  };
+}
+
+function pickWeightedEmitter(
+  emitters: readonly EmissiveElement[],
+  totalWeight: number
+): EmissiveElement {
+  let threshold = Math.random() * totalWeight;
+
+  for (const emitter of emitters) {
+    threshold -= emitterWeight(emitter);
+    if (threshold <= 0) {
+      return emitter;
+    }
+  }
+
+  return emitters[emitters.length - 1];
+}
+
+function isSourceElement(element: FlowElement): element is SourceElement {
+  return element.kind === "source";
+}
+
+function isDoubletElement(element: FlowElement): element is DoubletElement {
+  return element.kind === "doublet";
+}
+
+function isEmissiveElement(element: FlowElement): element is EmissiveElement {
+  return isSourceElement(element) || isDoubletElement(element);
+}
+
+function emitterWeight(emitter: EmissiveElement): number {
+  switch (emitter.kind) {
+    case "source":
+      return Math.max(emitter.strength, 1e-6);
+    case "doublet":
+      return Math.max(Math.abs(emitter.strength), 1e-6);
+    default:
+      return assertNever(emitter);
+  }
+}
+
+function shouldCaptureParticleNearSingularity(
+  previous: Point,
+  next: Point,
+  flowField: FlowField,
+  worldHeight: number
+): boolean {
+  const baseCaptureRadius = Math.max(worldHeight * 0.01, 0.03);
+
+  for (const element of flowField.elements) {
+    if (!isCapturingElement(element)) {
+      continue;
+    }
+
+    const captureCenter = captureCenterForElement(element, worldHeight);
+    const captureRadius = Math.max(baseCaptureRadius, element.coreRadius * 1.4);
+    const previousDistance = Math.hypot(previous.x - captureCenter.x, previous.y - captureCenter.y);
+    const nextDistance = Math.hypot(next.x - captureCenter.x, next.y - captureCenter.y);
+
+    if (nextDistance <= captureRadius) {
+      return true;
+    }
+
+    if (nextDistance >= previousDistance) {
+      continue;
+    }
+
+    if (distancePointToSegment(captureCenter, previous, next) <= captureRadius) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isCapturingElement(element: FlowElement): element is CapturingElement {
+  return element.kind === "sink" || element.kind === "doublet";
+}
+
+function captureCenterForElement(
+  element: CapturingElement,
+  worldHeight: number
+): Point {
+  switch (element.kind) {
+    case "sink":
+      return element.anchor;
+    case "doublet":
+      return doubletSinkCenter(element, worldHeight);
+    default:
+      return assertNever(element);
+  }
+}
+
+function doubletSourceCenter(element: DoubletElement, worldHeight: number): Point {
+  const axis = unitFromAngle(element.angleDeg);
+  const sign = element.strength >= 0 ? -1 : 1;
+  const offset = doubletLobeOffset(element, worldHeight);
+  return {
+    x: element.anchor.x + axis.x * sign * offset,
+    y: element.anchor.y + axis.y * sign * offset
+  };
+}
+
+function doubletSinkCenter(element: DoubletElement, worldHeight: number): Point {
+  const axis = unitFromAngle(element.angleDeg);
+  const sign = element.strength >= 0 ? 1 : -1;
+  const offset = doubletLobeOffset(element, worldHeight);
+  return {
+    x: element.anchor.x + axis.x * sign * offset,
+    y: element.anchor.y + axis.y * sign * offset
+  };
+}
+
+function doubletLobeOffset(element: DoubletElement, worldHeight: number): number {
+  return Math.max(worldHeight * 0.018, element.coreRadius * 2.2, 0.05);
+}
+
+function distancePointToSegment(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared <= 1e-12) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+
+  const t = clamp(
+    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+    0,
+    1
+  );
+  const projection = {
+    x: start.x + t * dx,
+    y: start.y + t * dy
+  };
+
+  return Math.hypot(point.x - projection.x, point.y - projection.y);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function unitFromAngle(angleDeg: number): Point {
+  const radians = (angleDeg * Math.PI) / 180;
+  return {
+    x: Math.cos(radians),
+    y: Math.sin(radians)
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled value: ${String(value)}`);
+}
+
+function signatureForViewport(viewport: Viewport): string {
+  const { width, height, dpr, bounds } = viewport;
+  return [
+    width,
+    height,
+    dpr.toFixed(4),
+    bounds.xMin.toFixed(4),
+    bounds.xMax.toFixed(4),
+    bounds.yMin.toFixed(4),
+    bounds.yMax.toFixed(4)
+  ].join(":");
 }

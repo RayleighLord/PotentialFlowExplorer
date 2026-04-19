@@ -45,12 +45,13 @@ input {
 }
 
 .app-root {
-  position: relative;
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
 
 .stage {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: radial-gradient(circle at 82% 18%, rgba(37, 84, 168, 0.16), transparent 26%), linear-gradient(180deg, #0a121d 0%, #071018 100%);
 }
@@ -64,11 +65,11 @@ input {
 }
 
 .hud-panel {
-  position: fixed;
+  position: absolute;
   left: 16px;
   top: 16px;
   bottom: 84px;
-  width: min(360px, calc(100vw - 32px));
+  width: min(360px, calc(100% - 32px));
   display: grid;
   gap: 12px;
   overflow-y: auto;
@@ -338,8 +339,8 @@ button:hover {
 }
 
 .status-bar {
-  position: fixed;
-  left: min(392px, calc(100vw - 32px));
+  position: absolute;
+  left: min(392px, calc(100% - 32px));
   right: 16px;
   bottom: 16px;
   display: flex;
@@ -373,7 +374,7 @@ button:hover {
 
 @media (max-width: 960px) {
   .hud-panel {
-    width: min(336px, calc(100vw - 24px));
+    width: min(336px, calc(100% - 24px));
     left: 12px;
     top: 12px;
     bottom: 76px;
@@ -393,13 +394,12 @@ button:hover {
   }
 
   .hud-panel {
-    width: calc(100vw - 24px);
+    width: calc(100% - 24px);
     max-height: 52vh;
     bottom: auto;
   }
 
   .status-bar {
-    position: fixed;
     left: 12px;
     right: 12px;
     bottom: 12px;

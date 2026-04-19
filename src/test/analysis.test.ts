@@ -4,17 +4,36 @@ import { findStagnationPoints } from "../model/analysis";
 import { createFlowField } from "../model/flowField";
 
 describe("findStagnationPoints", () => {
-  it("returns no stagnation points when no elements are plotted", () => {
-    const field = createFlowField([]);
+  it("detects the midpoint stagnation between two nearby equal sources", () => {
+    const field = createFlowField([
+      {
+        id: "source-left",
+        kind: "source",
+        anchor: { x: 0, y: 0 },
+        visible: true,
+        strength: 5,
+        coreRadius: 0.14
+      },
+      {
+        id: "source-right",
+        kind: "source",
+        anchor: { x: 1, y: 0 },
+        visible: true,
+        strength: 5,
+        coreRadius: 0.14
+      }
+    ]);
 
     const stagnationPoints = findStagnationPoints(field, {
-      xMin: -3,
-      xMax: 3,
-      yMin: -2,
-      yMax: 2
+      xMin: -6.4,
+      xMax: 6.4,
+      yMin: -4,
+      yMax: 4
     });
 
-    expect(stagnationPoints).toEqual([]);
+    expect(
+      stagnationPoints.some((point) => Math.abs(point.x - 0.5) < 0.05 && Math.abs(point.y) < 0.05)
+    ).toBe(true);
   });
 
   it("detects the front and rear stagnation points of the cylinder example", () => {
