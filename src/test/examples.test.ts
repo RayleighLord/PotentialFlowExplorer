@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { AppController } from "../ui/controller";
 
 describe("example presets", () => {
-  it("loads the uniform example with the marker on a major-grid intersection", () => {
+  it("loads the source-sink example from the preset library", () => {
     const controller = new AppController();
-    controller.loadExample("uniform");
+    controller.loadExample("source-sink");
 
-    const uniform = controller.getViewModel().state.elements.find((element) => element.kind === "uniform");
+    const kinds = controller.getViewModel().state.elements.map((element) => element.kind).sort();
 
-    expect(uniform?.anchor).toEqual({ x: -5, y: 3 });
+    expect(kinds).toEqual(["sink", "source"]);
   });
 
   it("loads the cylinder example with an upstream uniform-style seed line", () => {
@@ -25,5 +25,25 @@ describe("example presets", () => {
     expect(Math.max(...seedXs) - Math.min(...seedXs)).toBeLessThan(0.05);
     expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThan(0.001);
     expect(spacings[0]).toBeCloseTo(0.25, 6);
+  });
+
+  it("loads the corner-flow example with quarter-plane guides and image sources", () => {
+    const controller = new AppController();
+    controller.loadExample("corner-source");
+
+    const viewModel = controller.getViewModel();
+    const anchors = viewModel.state.elements
+      .map((element) => element.anchor)
+      .sort((left, right) => left.x - right.x || left.y - right.y);
+
+    expect(viewModel.state.elements).toHaveLength(4);
+    expect(viewModel.state.guides.filter((guide) => guide.kind === "half-plane")).toHaveLength(2);
+    expect(anchors).toEqual([
+      { x: -0.5, y: -0.5 },
+      { x: -0.5, y: 0.5 },
+      { x: 0.5, y: -0.5 },
+      { x: 0.5, y: 0.5 }
+    ]);
+    expect(viewModel.streamlines.length).toBeGreaterThan(0);
   });
 });

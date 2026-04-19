@@ -2,7 +2,7 @@ import { elementSummary, FLOW_KIND_LABELS, formatNumber, getElementAngleDeg, get
 import { PotentialFlowRenderer } from "./render/renderer";
 import { snapPointToGrid } from "./render/viewport";
 import { AppController, EXAMPLE_PRESETS } from "./ui/controller";
-import type { ClickMode, FlowElement, FlowElementKind, Point, ViewModel } from "./types";
+import type { FlowElement, FlowElementKind, Point, ViewModel } from "./types";
 
 interface DragState {
   elementId: string;
@@ -19,8 +19,6 @@ export function startApp(): void {
   const flowCanvas = getElement<HTMLCanvasElement>("flow-canvas");
   const exampleSelect = getElement<HTMLSelectElement>("example-select");
   const exampleDescription = getElement<HTMLElement>("example-description");
-  const modeElementButton = getElement<HTMLButtonElement>("mode-element-button");
-  const modeStreamlineButton = getElement<HTMLButtonElement>("mode-streamline-button");
   const toolSelect = getElement<HTMLSelectElement>("tool-select");
   const magnitudeLabel = getElement<HTMLElement>("magnitude-label");
   const magnitudeInput = getElement<HTMLInputElement>("magnitude-input");
@@ -45,8 +43,7 @@ export function startApp(): void {
   const stagnationToggle = getElement<HTMLInputElement>("stagnation-toggle");
   const snapToggle = getElement<HTMLInputElement>("snap-toggle");
   const particleDensityInput = getElement<HTMLInputElement>("particle-density-input");
-  const sampleStreamlinesButton = getElement<HTMLButtonElement>("sample-streamlines-button");
-  const clearStreamlinesButton = getElement<HTMLButtonElement>("clear-streamlines-button");
+  const resetStreamlinesButton = getElement<HTMLButtonElement>("reset-streamlines-button");
   const clearElementsButton = getElement<HTMLButtonElement>("clear-elements-button");
   const elementCount = getElement<HTMLElement>("element-count");
   const elementList = getElement<HTMLElement>("element-list");
@@ -64,6 +61,7 @@ export function startApp(): void {
 
   let currentViewModel = controller.getViewModel();
   let dragState: DragState | null = null;
+  let isSpacePressed = false;
 
   populateExampleSelect(exampleSelect);
   populateToolSelect(toolSelect);
@@ -81,8 +79,6 @@ export function startApp(): void {
       angleInput,
       coreRadiusField,
       coreRadiusInput,
-      modeElementButton,
-      modeStreamlineButton,
       selectedSummary,
       selectedInspector,
       selectedMagnitudeLabel,
@@ -125,9 +121,6 @@ export function startApp(): void {
     controller.setPlacementTemplate({ coreRadius: Number(coreRadiusInput.value) });
   });
 
-  modeElementButton.addEventListener("click", () => controller.setClickMode("element"));
-  modeStreamlineButton.addEventListener("click", () => controller.setClickMode("streamline"));
-
   applySelectedButton.addEventListener("click", () => {
     controller.updateSelectedElement({
       magnitude: Number(selectedMagnitudeInput.value),
@@ -145,8 +138,7 @@ export function startApp(): void {
   snapToggle.addEventListener("change", () => controller.setSnapToGrid(snapToggle.checked));
   particleDensityInput.addEventListener("input", () => controller.setParticleDensity(Number(particleDensityInput.value)));
 
-  sampleStreamlinesButton.addEventListener("click", () => controller.sampleStreamlines());
-  clearStreamlinesButton.addEventListener("click", () => controller.clearStreamlines());
+  resetStreamlinesButton.addEventListener("click", () => controller.resetStreamlines());
   clearElementsButton.addEventListener("click", () => controller.clearElements());
 
   elementList.addEventListener("click", (event) => {
@@ -167,6 +159,30 @@ export function startApp(): void {
     controller.setSelectedElementId(currentViewModel.state.selectedElementId === id ? null : id);
   });
 
+  window.addEventListener("keydown", (event) => {
+    if (event.code !== "Space" || isTextEntryTarget(event.target)) {
+      return;
+    }
+
+    isSpacePressed = true;
+    event.preventDefault();
+  });
+
+  window.addEventListener("keyup", (event) => {
+    if (event.code !== "Space") {
+      return;
+    }
+
+    isSpacePressed = false;
+    if (!isTextEntryTarget(event.target)) {
+      event.preventDefault();
+    }
+  });
+
+  window.addEventListener("blur", () => {
+    isSpacePressed = false;
+  });
+
   flowCanvas.addEventListener("pointerdown", (event) => {
     const world = renderer.clientToWorld(event.clientX, event.clientY);
     if (!world) {
@@ -174,11 +190,18 @@ export function startApp(): void {
     }
 
     const hit = renderer.hitTestElement(world);
+    const isStreamlineGesture = event.button === 1 || (event.button === 0 && isSpacePressed);
 
     if (event.button === 2) {
       if (hit) {
         controller.deleteElement(hit.id);
       }
+      return;
+    }
+
+    if (isStreamlineGesture) {
+      event.preventDefault();
+      controller.addStreamlineSeed(world);
       return;
     }
 
@@ -200,16 +223,11 @@ export function startApp(): void {
       return;
     }
 
-    const clickMode = event.shiftKey ? flipClickMode(currentViewModel.state.clickMode) : currentViewModel.state.clickMode;
-    const finalPoint = currentViewModel.state.snapToGrid && clickMode === "element"
+    const finalPoint = currentViewModel.state.snapToGrid
       ? snapPointToGrid(world, snapStepForPlacementTemplate(currentViewModel, renderer))
       : world;
 
-    if (clickMode === "streamline") {
-      controller.addStreamlineSeed(finalPoint);
-    } else {
-      controller.addElementAt(finalPoint);
-    }
+    controller.addElementAt(finalPoint);
   });
 
   flowCanvas.addEventListener("pointermove", (event) => {
@@ -274,6 +292,12 @@ export function startApp(): void {
     event.preventDefault();
   });
 
+  flowCanvas.addEventListener("auxclick", (event) => {
+    if (event.button === 1) {
+      event.preventDefault();
+    }
+  });
+
   flowCanvas.addEventListener("dblclick", (event) => {
     event.preventDefault();
   });
@@ -317,8 +341,6 @@ function syncControls(
     angleInput: HTMLInputElement;
     coreRadiusField: HTMLElement;
     coreRadiusInput: HTMLInputElement;
-    modeElementButton: HTMLButtonElement;
-    modeStreamlineButton: HTMLButtonElement;
     selectedSummary: HTMLElement;
     selectedInspector: HTMLElement;
     selectedMagnitudeLabel: HTMLElement;
@@ -351,8 +373,6 @@ function syncControls(
   syncNumericInput(elements.angleInput, viewModel.state.placement.angleDeg);
   elements.coreRadiusField.classList.toggle("is-hidden", !hasCoreRadiusParameter(viewModel.state.placement.kind));
   syncNumericInput(elements.coreRadiusInput, viewModel.state.placement.coreRadius);
-
-  syncModeButtons(viewModel.state.clickMode, elements.modeElementButton, elements.modeStreamlineButton);
 
   const selectedElement = controller.getSelectedElement();
   if (!selectedElement) {
@@ -431,19 +451,6 @@ function syncControls(
   }
 }
 
-function syncModeButtons(
-  clickMode: ClickMode,
-  elementButton: HTMLButtonElement,
-  streamlineButton: HTMLButtonElement
-): void {
-  elementButton.classList.toggle("is-active", clickMode === "element");
-  streamlineButton.classList.toggle("is-active", clickMode === "streamline");
-}
-
-function flipClickMode(mode: ClickMode): ClickMode {
-  return mode === "element" ? "streamline" : "element";
-}
-
 function snapStepForPlacementTemplate(viewModel: ViewModel, renderer: PotentialFlowRenderer): number {
   const { kind, angleDeg } = viewModel.state.placement;
   return snapStepForFlow(kind, angleDeg, renderer);
@@ -490,6 +497,21 @@ function syncNumericInput(input: HTMLInputElement, value: number): void {
   }
 
   input.value = `${value}`;
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLButtonElement ||
+    target.isContentEditable ||
+    target.closest("[contenteditable='true']") !== null
+  );
 }
 
 function clearLegacyShellSizing(): void {

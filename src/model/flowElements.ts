@@ -18,6 +18,10 @@ export const FLOW_KIND_LABELS: Record<FlowElementKind, string> = {
   doublet: "Doublet"
 };
 
+export function defaultPlacementMagnitude(kind: FlowElementKind): number {
+  return kind === "uniform" ? 5 : 50;
+}
+
 export function createElementFromTemplate(
   template: PlacementTemplate,
   anchor: Point,

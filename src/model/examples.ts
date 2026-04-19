@@ -9,21 +9,11 @@ const UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE = 1.5;
 const CYLINDER_RADIUS = 1.15;
 const CYLINDER_SPEED = 1.05;
 const CYLINDER_DOUBLET_STRENGTH = 2 * Math.PI * CYLINDER_SPEED * CYLINDER_RADIUS * CYLINDER_RADIUS;
+const WALL_SOURCE_CENTER = { x: 0, y: 0.8 };
+const CORNER_CENTER = { x: 0.95, y: 0.95 };
+const CORNER_SOURCE_OFFSET = 0.5;
 
 export const EXAMPLE_PRESETS: ExamplePreset[] = [
-  {
-    id: "uniform",
-    label: "Uniform flow",
-    description: "A uniform stream is the simplest building block. Try adding a vortex or a source to see how the stream bends.",
-    view: {
-      center: DEFAULT_CENTER,
-      worldHeight: DEFAULT_WORLD_HEIGHT
-    },
-    elements: [
-      createUniformFlow("uniform-main", DEFAULT_UNIFORM_ANCHOR, CYLINDER_SPEED, 0)
-    ],
-    streamlineSeeds: createUniformSeedLine(boundsFromView(DEFAULT_CENTER, DEFAULT_WORLD_HEIGHT, 1.6), 0, 13)
-  },
   {
     id: "source-sink",
     label: "Source–sink pair",
@@ -39,11 +29,25 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
     streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, DEFAULT_WORLD_HEIGHT, 1.6), 8, 6)
   },
   {
+    id: "doublet-limit",
+    label: "Doublet limit",
+    description: "Bringing a source and sink very close together gives a practical doublet approximation while keeping the ingredients explicit.",
+    view: {
+      center: DEFAULT_CENTER,
+      worldHeight: DEFAULT_WORLD_HEIGHT
+    },
+    elements: [
+      createSource("doublet-limit-source", { x: -0.42, y: 0 }, 14, 0.14),
+      createSink("doublet-limit-sink", { x: 0.42, y: 0 }, 14, 0.14)
+    ],
+    streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, DEFAULT_WORLD_HEIGHT, 1.6), 9, 6)
+  },
+  {
     id: "wall-source",
     label: "Source next to a wall",
     description: "The mirror source below y = 0 enforces a slip wall through the method of images.",
     view: {
-      center: { x: 0, y: 1.2 },
+      center: WALL_SOURCE_CENTER,
       worldHeight: 7.2
     },
     elements: [
@@ -67,7 +71,60 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
         solid: true
       }
     ],
-    streamlineSeeds: createScaledSeedGrid(boundsFromView({ x: 0, y: 1.2 }, 7.2, 1.6), 8, 4, (point) => point.y >= 0.18)
+    streamlineSeeds: createScaledSeedGrid(boundsFromView(WALL_SOURCE_CENTER, 7.2, 1.6), 8, 4, (point) => point.y >= 0.18)
+  },
+  {
+    id: "corner-source",
+    label: "Corner flow",
+    description: "A source in the first quadrant plus three image sources makes both walls streamlines, producing a classical corner image system.",
+    view: {
+      center: CORNER_CENTER,
+      worldHeight: 6.4
+    },
+    elements: [
+      createSource("corner-main", { x: CORNER_SOURCE_OFFSET, y: CORNER_SOURCE_OFFSET }, 4.4, 0.14),
+      createSource("corner-image-left", { x: -CORNER_SOURCE_OFFSET, y: CORNER_SOURCE_OFFSET }, 4.4, 0.14),
+      createSource("corner-image-bottom", { x: CORNER_SOURCE_OFFSET, y: -CORNER_SOURCE_OFFSET }, 4.4, 0.14),
+      createSource("corner-image-diagonal", { x: -CORNER_SOURCE_OFFSET, y: -CORNER_SOURCE_OFFSET }, 4.4, 0.14)
+    ],
+    guides: [
+      {
+        kind: "line",
+        id: "corner-wall-x",
+        from: { x: 0, y: -6 },
+        to: { x: 0, y: 6 },
+        label: "wall x = 0"
+      },
+      {
+        kind: "line",
+        id: "corner-wall-y",
+        from: { x: -6, y: 0 },
+        to: { x: 6, y: 0 },
+        label: "wall y = 0"
+      },
+      {
+        kind: "half-plane",
+        id: "corner-solid-left",
+        axis: "x",
+        value: 0,
+        side: "left",
+        solid: true
+      },
+      {
+        kind: "half-plane",
+        id: "corner-solid-below",
+        axis: "y",
+        value: 0,
+        side: "below",
+        solid: true
+      }
+    ],
+    streamlineSeeds: createScaledSeedGrid(
+      boundsFromView(CORNER_CENTER, 6.4, 1.6),
+      7,
+      6,
+      (point) => point.x >= 0.12 && point.y >= 0.12
+    )
   },
   {
     id: "cylinder",
@@ -132,20 +189,6 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       createSink("oval-sink", { x: 1.55, y: 0 }, 5.2, 0.14)
     ],
     streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, 7.6, 1.6), 9, 6)
-  },
-  {
-    id: "vortex-pair",
-    label: "Counter-rotating vortices",
-    description: "A vortex pair reveals how rotational singularities superimpose while the ambient field remains irrotational away from the cores.",
-    view: {
-      center: DEFAULT_CENTER,
-      worldHeight: 7.2
-    },
-    elements: [
-      createVortex("vortex-left", { x: -1.3, y: 0 }, 4.8, 0.18),
-      createVortex("vortex-right", { x: 1.3, y: 0 }, -4.8, 0.18)
-    ],
-    streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, 7.2, 1.6), 9, 6)
   }
 ];
 

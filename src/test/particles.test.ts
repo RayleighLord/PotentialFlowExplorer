@@ -135,7 +135,7 @@ describe("ParticleEngine near-core emission", () => {
     expect(Math.hypot(particle.x, particle.y)).toBeLessThan(0.14);
   });
 
-  it("spawns doublet particles close to the placed center", () => {
+  it("spawns doublet particles on the emitting side of the marker", () => {
     const field = createFlowField([
       {
         id: "doublet",
@@ -155,7 +155,9 @@ describe("ParticleEngine near-core emission", () => {
     engine.reset(1, viewport, field, []);
 
     const particle = getParticles(engine)[0];
-    expect(Math.hypot(particle.x, particle.y)).toBeLessThan(0.14);
+    expect(particle.x).toBeLessThan(-0.04);
+    expect(Math.abs(particle.y)).toBeLessThan(0.14);
+    expect(Math.hypot(particle.x, particle.y)).toBeLessThan(0.32);
   });
 });
 

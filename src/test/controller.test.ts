@@ -30,4 +30,49 @@ describe("AppController fixed view", () => {
 
     expect(controller.getViewModel().state.selectedElementId).toBeNull();
   });
+
+  it("uses per-tool default placement magnitudes", () => {
+    const controller = new AppController();
+
+    expect(controller.getViewModel().state.placement.magnitude).toBe(50);
+
+    controller.setPlacementTemplate({ kind: "uniform" });
+    expect(controller.getViewModel().state.placement.magnitude).toBe(5);
+
+    controller.setPlacementTemplate({ kind: "vortex" });
+    expect(controller.getViewModel().state.placement.magnitude).toBe(50);
+  });
+
+  it("resets custom streamline seeds back to the default automatic streamlines", () => {
+    const controller = new AppController();
+
+    controller.addElementAt({ x: 0, y: 0 });
+    controller.addStreamlineSeed({ x: 1, y: 0 });
+
+    expect(controller.getViewModel().state.streamlineSeeds).toHaveLength(1);
+
+    controller.resetStreamlines();
+
+    const viewModel = controller.getViewModel();
+    expect(viewModel.state.streamlineSeeds).toHaveLength(0);
+    expect(viewModel.state.autoStreamlinesEnabled).toBe(true);
+    expect(viewModel.streamlines.length).toBeGreaterThan(0);
+  });
+
+  it("restores preset streamline seeds when resetting an example", () => {
+    const controller = new AppController();
+
+    controller.loadExample("cylinder");
+    const initialSeedCount = controller.getViewModel().state.streamlineSeeds.length;
+
+    controller.addStreamlineSeed({ x: 0, y: 1.5 });
+    expect(controller.getViewModel().state.streamlineSeeds.length).toBe(initialSeedCount + 1);
+
+    controller.resetStreamlines();
+
+    const viewModel = controller.getViewModel();
+    expect(viewModel.state.exampleId).toBe("cylinder");
+    expect(viewModel.state.streamlineSeeds).toHaveLength(initialSeedCount);
+    expect(viewModel.state.autoStreamlinesEnabled).toBe(false);
+  });
 });

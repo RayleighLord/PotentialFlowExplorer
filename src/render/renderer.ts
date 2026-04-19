@@ -18,7 +18,8 @@ const AXIS_COLOR = "rgba(201, 230, 255, 0.22)";
 const STREAMLINE_COLOR = "rgba(120, 197, 255, 0.55)";
 const STREAMLINE_GLOW = "rgba(53, 149, 255, 0.14)";
 const GUIDE_COLOR = "rgba(180, 221, 255, 0.75)";
-const SOLID_FILL = "rgba(7, 11, 18, 0.96)";
+const SOLID_FILL = "rgba(7, 11, 18, 0.68)";
+const SOLID_HALF_PLANE_FILL = "rgba(4, 8, 14, 0.56)";
 const STAGNATION_COLOR = "rgba(255, 205, 124, 0.95)";
 const MARKER_RADIUS_WORLD = 0.085;
 const MARKER_FONT_SIZE_WORLD = 0.108;
@@ -398,7 +399,7 @@ export class PotentialFlowRenderer {
           break;
         }
         case "half-plane": {
-          context.fillStyle = "rgba(4, 8, 14, 0.82)";
+          context.fillStyle = SOLID_HALF_PLANE_FILL;
           switch (guide.side) {
             case "below": {
               const y = worldToScreen({ x: 0, y: guide.value }, this.viewport).y;

@@ -113,16 +113,66 @@ function createDoubletSeeds(
   const normal = perpendicular(axis);
   const innerRadius = Math.max(coreRadius * 2.1, span * 0.04);
   const sideTargetSpacing = Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER;
+  const referenceCenter = boundsCenter(bounds);
+  const referenceRadialSpacing = centeredReferenceSpacing(
+    bounds,
+    referenceCenter,
+    normal,
+    innerRadius,
+    sideTargetSpacing,
+    16,
+    36,
+    0.96
+  );
   const topDistance = distanceToBounds(anchor, normal, bounds);
   const bottomDistance = distanceToBounds(anchor, negate(normal), bounds);
   const topOuter = topDistance * 0.96;
   const bottomOuter = bottomDistance * 0.96;
-  const topCount = countFromSpan(topOuter - innerRadius, sideTargetSpacing, 16, 36);
-  const bottomCount = countFromSpan(bottomOuter - innerRadius, sideTargetSpacing, 16, 36);
-  const top = createRadialCandidates(anchor, normal, innerRadius, topOuter, topCount);
-  const bottom = createRadialCandidates(anchor, negate(normal), innerRadius, bottomOuter, bottomCount);
+  const top = createFixedSpacingRadialCandidates(anchor, normal, innerRadius, topOuter, referenceRadialSpacing);
+  const bottom = createFixedSpacingRadialCandidates(anchor, negate(normal), innerRadius, bottomOuter, referenceRadialSpacing);
+  const axisAngle = Math.atan2(axis.y, axis.x);
+  const axisDistance = distanceToBounds(anchor, axis, bounds);
+  const oppositeAxisDistance = distanceToBounds(anchor, negate(axis), bounds);
+  const sideArcHalfSpan = (56 * Math.PI) / 180;
+  const sideArcTargetSpacing = Math.max(span * 0.14, 0.9) / STREAMLINE_DENSITY_MULTIPLIER;
+  const referenceArcRadius = largeRadiusForDoubletSideArc(
+    distanceToBounds(referenceCenter, axis, bounds),
+    innerRadius,
+    span
+  );
+  const referenceArcSpacing = referenceSpacingFromSpan(
+    referenceArcRadius * sideArcHalfSpan * 2,
+    sideArcTargetSpacing,
+    8,
+    18
+  );
+  const rightArcRadius = largeRadiusForDoubletSideArc(axisDistance, innerRadius, span);
+  const leftArcRadius = largeRadiusForDoubletSideArc(oppositeAxisDistance, innerRadius, span);
+  const rightArc = createBalancedArcCandidates(
+    anchor,
+    axisAngle,
+    rightArcRadius,
+    sideArcHalfSpan,
+    countFromReferenceSpacing(rightArcRadius * sideArcHalfSpan * 2, referenceArcSpacing, 18),
+    0,
+    true,
+    referenceArcSpacing
+  );
+  const leftArc = createBalancedArcCandidates(
+    anchor,
+    axisAngle + Math.PI,
+    leftArcRadius,
+    sideArcHalfSpan,
+    countFromReferenceSpacing(leftArcRadius * sideArcHalfSpan * 2, referenceArcSpacing, 18),
+    0.5,
+    true,
+    referenceArcSpacing
+  );
 
-  return interleavePoints(top, bottom);
+  return [
+    ...interleavePoints(top, bottom),
+    ...interleavePoints(rightArc, leftArc)
+  ];
 }
 
 function createVortexSeeds(
@@ -131,33 +181,30 @@ function createVortexSeeds(
   bounds: Bounds,
   span: number
 ): Point[] {
-  const radialDirection = { x: 1, y: 0 } satisfies Point;
-  const oppositeDirection = { x: -1, y: 0 } satisfies Point;
   const innerRadius = Math.max(coreRadius * 2, span * 0.04);
-  const outerRadius = Math.max(
+  const referenceCenter = boundsCenter(bounds);
+  const targetSpacing = Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER;
+  const referenceOuterRadius = Math.max(
     innerRadius + span * 0.18,
-    distanceToBounds(anchor, radialDirection, bounds) * 0.995
+    distanceToBounds(referenceCenter, { x: 1, y: 0 }, bounds) * 0.995
   );
-  const oppositeOuterRadius = Math.max(
-    innerRadius + span * 0.18,
-    distanceToBounds(anchor, oppositeDirection, bounds) * 0.995
-  );
-  const count = countFromSpan(
-    outerRadius - innerRadius,
-    Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
+  const referenceRadialSpacing = referenceSpacingFromSpan(
+    referenceOuterRadius - innerRadius,
+    targetSpacing,
     16,
     36
   );
-  const oppositeCount = countFromSpan(
-    oppositeOuterRadius - innerRadius,
-    Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
-    16,
-    36
+  const rightOuterRadius = Math.max(
+    innerRadius + span * 0.18,
+    distanceToBounds(anchor, { x: 1, y: 0 }, bounds) * 0.995
   );
-
+  const leftOuterRadius = Math.max(
+    innerRadius + span * 0.18,
+    distanceToBounds(anchor, { x: -1, y: 0 }, bounds) * 0.995
+  );
   return interleavePoints(
-    createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, count),
-    createRadialCandidates(anchor, oppositeDirection, innerRadius, oppositeOuterRadius, oppositeCount)
+    createFixedSpacingRadialCandidates(anchor, { x: 1, y: 0 }, innerRadius, rightOuterRadius, referenceRadialSpacing),
+    createFixedSpacingRadialCandidates(anchor, { x: -1, y: 0 }, innerRadius, leftOuterRadius, referenceRadialSpacing)
   );
 }
 
@@ -232,6 +279,40 @@ function createGridAlignedLineCandidates(
   }));
 }
 
+function createBalancedArcCandidates(
+  center: Point,
+  axisAngle: number,
+  radius: number,
+  halfSpan: number,
+  count: number,
+  phaseOffset = 0,
+  trimAngularEndpoints = false,
+  preferredArcSpacing?: number
+): Point[] {
+  if (!Number.isFinite(radius) || radius <= 0 || count <= 0) {
+    return [];
+  }
+
+  const step = preferredArcSpacing && preferredArcSpacing > 0
+    ? preferredArcSpacing / radius
+    : count > 1
+      ? (2 * halfSpan) / (Math.abs(phaseOffset) > 1e-9 ? count : count - 1)
+      : 0;
+  const rawAngleOffsets = fixedArcAngleOffsets(halfSpan, step, phaseOffset, count);
+  const angleOffsets =
+    trimAngularEndpoints && rawAngleOffsets.length > 2
+      ? rawAngleOffsets.slice(1, -1)
+      : rawAngleOffsets;
+
+  return centerOutIndices(angleOffsets.length).map((index) => {
+    const angle = axisAngle + angleOffsets[index];
+    return {
+      x: center.x + radius * Math.cos(angle),
+      y: center.y + radius * Math.sin(angle)
+    };
+  });
+}
+
 function createRadialCandidates(
   anchor: Point,
   direction: Point,
@@ -251,6 +332,107 @@ function createRadialCandidates(
   }
 
   return points;
+}
+
+function fixedArcAngleOffsets(
+  halfSpan: number,
+  step: number,
+  phaseOffset: number,
+  fallbackCount: number
+): number[] {
+  if (!Number.isFinite(step) || step <= 0) {
+    return Array.from({ length: fallbackCount }, (_, index) =>
+      interpolate(-halfSpan, halfSpan, index / Math.max(fallbackCount - 1, 1))
+    );
+  }
+
+  const useShiftedInteriorSpacing = Math.abs(phaseOffset) > 1e-9;
+  const start = useShiftedInteriorSpacing ? -halfSpan + phaseOffset * step : -halfSpan;
+  const offsets: number[] = [];
+
+  for (let angle = start; angle <= halfSpan + 1e-9; angle += step) {
+    if (angle >= -halfSpan - 1e-9) {
+      offsets.push(clamp(angle, -halfSpan, halfSpan));
+    }
+  }
+
+  if (offsets.length === 0) {
+    offsets.push(0);
+  }
+
+  return offsets;
+}
+
+function createFixedSpacingRadialCandidates(
+  anchor: Point,
+  direction: Point,
+  innerRadius: number,
+  outerRadius: number,
+  spacing: number
+): Point[] {
+  const clampedOuter = Math.max(outerRadius, innerRadius);
+  const safeSpacing = Math.max(spacing, 1e-6);
+  const points: Point[] = [];
+
+  for (let radius = innerRadius; radius <= clampedOuter + 1e-9; radius += safeSpacing) {
+    points.push({
+      x: anchor.x + direction.x * radius,
+      y: anchor.y + direction.y * radius
+    });
+  }
+
+  return points;
+}
+
+function largeRadiusForDoubletSideArc(
+  distanceToEdge: number,
+  innerRadius: number,
+  span: number
+): number {
+  const maxRadius = Math.max(distanceToEdge * 0.82, 0);
+  const desiredRadius = Math.max(span * 0.4, innerRadius + span * 0.18);
+
+  return Math.min(desiredRadius, maxRadius);
+}
+
+function centeredReferenceSpacing(
+  bounds: Bounds,
+  referenceCenter: Point,
+  direction: Point,
+  innerRadius: number,
+  targetSpacing: number,
+  minCount: number,
+  maxCount: number,
+  outerScale = 1
+): number {
+  const referenceOuter = distanceToBounds(referenceCenter, direction, bounds) * outerScale;
+  return referenceSpacingFromSpan(referenceOuter - innerRadius, targetSpacing, minCount, maxCount);
+}
+
+function referenceSpacingFromSpan(
+  span: number,
+  targetSpacing: number,
+  minCount: number,
+  maxCount: number
+): number {
+  if (!Number.isFinite(span) || span <= 0) {
+    return Math.max(targetSpacing, 1e-6);
+  }
+
+  const count = countFromSpan(span, targetSpacing, minCount, maxCount);
+  if (count <= 1) {
+    return Math.max(span, targetSpacing, 1e-6);
+  }
+
+  return span / (count - 1);
+}
+
+function countFromReferenceSpacing(span: number, referenceSpacing: number, maxCount: number): number {
+  if (!Number.isFinite(span) || span <= 0) {
+    return 0;
+  }
+
+  return clamp(Math.floor(span / Math.max(referenceSpacing, 1e-6)) + 1, 1, maxCount);
 }
 
 function acceptSeedCandidates(
@@ -291,26 +473,6 @@ function acceptSeedCandidates(
   }
 
   return accepted;
-}
-
-function preferredRadialDirection(anchor: Point, bounds: Bounds): Point {
-  const directions = [
-    { x: 1, y: 0 },
-    { x: 0, y: 1 },
-    { x: -1, y: 0 },
-    { x: 0, y: -1 }
-  ];
-
-  let bestDirection = directions[0];
-  let bestDistance = -1;
-  for (const direction of directions) {
-    const distance = distanceToBounds(anchor, direction, bounds);
-    if (distance > bestDistance) {
-      bestDirection = direction;
-      bestDistance = distance;
-    }
-  }
-  return bestDirection;
 }
 
 function distanceToBounds(origin: Point, direction: Point, bounds: Bounds): number {

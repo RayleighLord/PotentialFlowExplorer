@@ -1,6 +1,6 @@
 import { computeFieldStats, findStagnationPoints } from "../model/analysis";
 import { isPointBlocked } from "../model/domain";
-import { createElementFromTemplate, updateElementParameters } from "../model/flowElements";
+import { createElementFromTemplate, defaultPlacementMagnitude, updateElementParameters } from "../model/flowElements";
 import { EXAMPLE_PRESETS, getExampleById } from "../model/examples";
 import { createFlowField } from "../model/flowField";
 import { generateAutoStreamlineSeeds } from "../model/streamlineSeeds";
@@ -92,10 +92,17 @@ export class AppController {
   }
 
   setPlacementTemplate(nextTemplate: Partial<PlacementTemplate>): void {
+    const nextKind = nextTemplate.kind ?? this.state.placement.kind;
+    const shouldResetMagnitude =
+      nextTemplate.kind !== undefined &&
+      nextTemplate.kind !== this.state.placement.kind &&
+      nextTemplate.magnitude === undefined;
+
     this.state = {
       ...this.state,
       placement: {
         ...this.state.placement,
+        ...(shouldResetMagnitude ? { magnitude: defaultPlacementMagnitude(nextKind) } : {}),
         ...nextTemplate
       }
     };
@@ -216,6 +223,32 @@ export class AppController {
       ...this.state,
       streamlineSeeds: [],
       autoStreamlinesEnabled: false
+    };
+    this.streamlineCounter = 1;
+    this.refresh();
+  }
+
+  resetStreamlines(): void {
+    if (this.state.exampleId !== null) {
+      const preset = getExampleById(this.state.exampleId);
+      if (!preset) {
+        return;
+      }
+
+      this.state = {
+        ...this.state,
+        streamlineSeeds: (preset.streamlineSeeds ?? []).map((seed) => ({ ...seed })),
+        autoStreamlinesEnabled: !preset.streamlineSeeds || preset.streamlineSeeds.length === 0
+      };
+      this.streamlineCounter = this.state.streamlineSeeds.length + 1;
+      this.refresh();
+      return;
+    }
+
+    this.state = {
+      ...this.state,
+      streamlineSeeds: [],
+      autoStreamlinesEnabled: true
     };
     this.streamlineCounter = 1;
     this.refresh();
@@ -410,7 +443,7 @@ export function createDefaultState(): AppState {
     selectedElementId: null,
     placement: {
       kind: "source",
-      magnitude: 5,
+      magnitude: defaultPlacementMagnitude("source"),
       angleDeg: 0,
       coreRadius: 0.14
     },

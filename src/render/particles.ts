@@ -326,22 +326,58 @@ function randomEmitterPoint(emitter: EmissiveElement, worldHeight: number): Poin
     case "source":
       return randomPointAroundCenter(emitter.anchor, emitter.coreRadius, worldHeight);
     case "doublet":
-      return randomPointAroundCenter(emitter.anchor, emitter.coreRadius, worldHeight * 0.85);
+      return randomPointAroundDoubletSource(emitter, worldHeight);
     default:
       return assertNever(emitter);
   }
 }
 
 function randomPointAroundCenter(center: Point, coreRadius: number, worldHeight: number): Point {
+  const { minimumRadius, maximumRadius } = particleSpawnRadiusRange(coreRadius, worldHeight);
   const angle = Math.random() * Math.PI * 2;
-  const minimumRadius = Math.max(worldHeight * 0.0065, coreRadius * 0.72, 0.02);
-  const maximumRadius = Math.max(worldHeight * 0.01, coreRadius * 0.96, minimumRadius + 0.014);
   const radiusT = Math.sqrt(Math.random());
   const spawnRadius = minimumRadius + (maximumRadius - minimumRadius) * radiusT;
 
   return {
     x: center.x + spawnRadius * Math.cos(angle),
     y: center.y + spawnRadius * Math.sin(angle)
+  };
+}
+
+function randomPointAroundDoubletSource(emitter: DoubletElement, worldHeight: number): Point {
+  const scaledWorldHeight = worldHeight * 0.85;
+  const sourceDirection = doubletSourceDirection(emitter);
+  const { maximumRadius } = particleSpawnRadiusRange(emitter.coreRadius, scaledWorldHeight);
+  const offset = maximumRadius + Math.max(emitter.coreRadius * 0.25, scaledWorldHeight * 0.004, 0.02);
+  const sourceCenter = {
+    x: emitter.anchor.x + sourceDirection.x * offset,
+    y: emitter.anchor.y + sourceDirection.y * offset
+  };
+
+  return randomPointAroundCenter(sourceCenter, emitter.coreRadius, scaledWorldHeight);
+}
+
+function particleSpawnRadiusRange(coreRadius: number, worldHeight: number): { minimumRadius: number; maximumRadius: number } {
+  const minimumRadius = Math.max(worldHeight * 0.0065, coreRadius * 0.72, 0.02);
+  const maximumRadius = Math.max(worldHeight * 0.01, coreRadius * 0.96, minimumRadius + 0.014);
+
+  return {
+    minimumRadius,
+    maximumRadius
+  };
+}
+
+function doubletSourceDirection(emitter: DoubletElement): Point {
+  const angle = (emitter.angleDeg * Math.PI) / 180;
+  const axis = {
+    x: Math.cos(angle),
+    y: Math.sin(angle)
+  };
+  const sourceSign = emitter.strength >= 0 ? -1 : 1;
+
+  return {
+    x: axis.x * sourceSign,
+    y: axis.y * sourceSign
   };
 }
 
