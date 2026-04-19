@@ -35,7 +35,7 @@ export function createStreamlineSettings(bounds: Bounds): StreamlineSettings {
     maxArcLength,
     maxStepsPerDirection: Math.max(2600, Math.ceil((maxArcLength / targetArcStep) * 1.35)),
     escapeMargin: span * 0.08,
-    minimumSingularityBuffer: Math.max(span * 0.0015, 0.004),
+    minimumSingularityBuffer: Math.max(span * 0.001, 0.0025),
     stagnationSpeedThreshold: 1e-4
   } satisfies StreamlineSettings;
 }
@@ -242,7 +242,7 @@ function isInsideSingularityTerminationBuffer(
 }
 
 function elementCoreBuffer(element: Exclude<FlowElement, { kind: "uniform" }>): number {
-  return Math.max(element.coreRadius * 0.35, 0);
+  return Math.max(element.coreRadius * 0.24, 0);
 }
 
 function isInsideExpandedBounds(point: Point, bounds: Bounds, margin: number): boolean {

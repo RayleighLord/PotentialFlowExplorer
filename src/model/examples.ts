@@ -2,6 +2,9 @@ import type { ExamplePreset, FlowElement, Guide, Point, StreamlineSeed } from ".
 
 const DEFAULT_WORLD_HEIGHT = 8;
 const DEFAULT_CENTER = { x: 0, y: 0 };
+const DEFAULT_UNIFORM_ANCHOR = { x: -5, y: 3 };
+const STREAMLINE_DENSITY_MULTIPLIER = 2;
+const UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE = 1.5;
 
 const CYLINDER_RADIUS = 1.15;
 const CYLINDER_SPEED = 1.05;
@@ -17,7 +20,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       worldHeight: DEFAULT_WORLD_HEIGHT
     },
     elements: [
-      createUniformFlow("uniform-main", { x: -4.8, y: 2.8 }, CYLINDER_SPEED, 0)
+      createUniformFlow("uniform-main", DEFAULT_UNIFORM_ANCHOR, CYLINDER_SPEED, 0)
     ],
     streamlineSeeds: createUniformSeedLine(boundsFromView(DEFAULT_CENTER, DEFAULT_WORLD_HEIGHT, 1.6), 0, 13)
   },
@@ -33,7 +36,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       createSource("source-left", { x: -1.8, y: 0 }, 5.5, 0.16),
       createSink("sink-right", { x: 1.8, y: 0 }, 5.5, 0.16)
     ],
-    streamlineSeeds: createSeedGrid(boundsFromView(DEFAULT_CENTER, DEFAULT_WORLD_HEIGHT, 1.6), 8, 6)
+    streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, DEFAULT_WORLD_HEIGHT, 1.6), 8, 6)
   },
   {
     id: "wall-source",
@@ -64,7 +67,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
         solid: true
       }
     ],
-    streamlineSeeds: createSeedGrid(boundsFromView({ x: 0, y: 1.2 }, 7.2, 1.6), 8, 4, (point) => point.y >= 0.18)
+    streamlineSeeds: createScaledSeedGrid(boundsFromView({ x: 0, y: 1.2 }, 7.2, 1.6), 8, 4, (point) => point.y >= 0.18)
   },
   {
     id: "cylinder",
@@ -75,7 +78,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       worldHeight: DEFAULT_WORLD_HEIGHT
     },
     elements: [
-      createUniformFlow("cylinder-uniform", { x: -5.0, y: 3.0 }, CYLINDER_SPEED, 0),
+      createUniformFlow("cylinder-uniform", DEFAULT_UNIFORM_ANCHOR, CYLINDER_SPEED, 0),
       createDoublet("cylinder-doublet", { x: 0, y: 0 }, CYLINDER_DOUBLET_STRENGTH, 0, 0.06)
     ],
     guides: [
@@ -99,7 +102,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       worldHeight: DEFAULT_WORLD_HEIGHT
     },
     elements: [
-      createUniformFlow("lifting-uniform", { x: -5.0, y: 3.0 }, CYLINDER_SPEED, 0),
+      createUniformFlow("lifting-uniform", DEFAULT_UNIFORM_ANCHOR, CYLINDER_SPEED, 0),
       createDoublet("lifting-doublet", { x: 0, y: 0 }, CYLINDER_DOUBLET_STRENGTH, 0, 0.06),
       createVortex("lifting-vortex", { x: 0, y: 0 }, 5.5, 0.22)
     ],
@@ -124,11 +127,11 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       worldHeight: 7.6
     },
     elements: [
-      createUniformFlow("oval-uniform", { x: -5.0, y: 3.0 }, 1.0, 0),
+      createUniformFlow("oval-uniform", DEFAULT_UNIFORM_ANCHOR, 1.0, 0),
       createSource("oval-source", { x: -1.55, y: 0 }, 5.2, 0.14),
       createSink("oval-sink", { x: 1.55, y: 0 }, 5.2, 0.14)
     ],
-    streamlineSeeds: createSeedGrid(boundsFromView(DEFAULT_CENTER, 7.6, 1.6), 9, 6)
+    streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, 7.6, 1.6), 9, 6)
   },
   {
     id: "vortex-pair",
@@ -142,7 +145,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       createVortex("vortex-left", { x: -1.3, y: 0 }, 4.8, 0.18),
       createVortex("vortex-right", { x: 1.3, y: 0 }, -4.8, 0.18)
     ],
-    streamlineSeeds: createSeedGrid(boundsFromView(DEFAULT_CENTER, 7.2, 1.6), 9, 6)
+    streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, 7.2, 1.6), 9, 6)
   }
 ];
 
@@ -257,6 +260,16 @@ function createSeedGrid(
   return seeds;
 }
 
+function createScaledSeedGrid(
+  bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
+  columns: number,
+  rows: number,
+  filter?: (point: Point) => boolean
+): StreamlineSeed[] {
+  const scaled = scaleGridDimensions(columns, rows, STREAMLINE_DENSITY_MULTIPLIER);
+  return createSeedGrid(bounds, scaled.columns, scaled.rows, filter);
+}
+
 function createUniformSeedLine(
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
   angleDeg: number,
@@ -273,10 +286,24 @@ function createUniformSeedLine(
     x: center.x - direction.x * upstreamDistance,
     y: center.y - direction.y * upstreamDistance
   };
-  const negativeSpan = distanceToBounds(origin, negate(normal), bounds) * 0.92;
-  const positiveSpan = distanceToBounds(origin, normal, bounds) * 0.92;
+  const rawNegativeSpan = distanceToBounds(origin, negate(normal), bounds);
+  const rawPositiveSpan = distanceToBounds(origin, normal, bounds);
 
-  return createLineSeeds(origin, normal, -negativeSpan, positiveSpan, count, "preset-seed");
+  if (isCardinalAngle(angleDeg)) {
+    const spacing = (majorGridStep(bounds) / 6) * UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE;
+    return createGridAlignedLineSeeds(origin, normal, rawNegativeSpan, rawPositiveSpan, spacing, "preset-seed");
+  }
+
+  const negativeSpan = rawNegativeSpan * 0.96;
+  const positiveSpan = rawPositiveSpan * 0.96;
+  return createLineSeeds(
+    origin,
+    normal,
+    -negativeSpan,
+    positiveSpan,
+    count * STREAMLINE_DENSITY_MULTIPLIER,
+    "preset-seed"
+  );
 }
 
 function createLineSeeds(
@@ -296,6 +323,29 @@ function createLineSeeds(
       x: origin.x + direction.x * offset,
       y: origin.y + direction.y * offset
     });
+  }
+
+  return seeds;
+}
+
+function createGridAlignedLineSeeds(
+  origin: Point,
+  direction: Point,
+  negativeSpan: number,
+  positiveSpan: number,
+  spacing: number,
+  idPrefix: string
+): StreamlineSeed[] {
+  const seeds: StreamlineSeed[] = [];
+  let counter = 1;
+
+  for (const offset of centeredGridOffsets(negativeSpan, positiveSpan, spacing)) {
+    seeds.push({
+      id: `${idPrefix}-${counter}`,
+      x: origin.x + direction.x * offset,
+      y: origin.y + direction.y * offset
+    });
+    counter += 1;
   }
 
   return seeds;
@@ -352,6 +402,64 @@ function negate(vector: Point): Point {
   return {
     x: -vector.x,
     y: -vector.y
+  };
+}
+
+function centeredGridOffsets(negativeSpan: number, positiveSpan: number, spacing: number): number[] {
+  const safeSpacing = Math.max(spacing, 1e-6);
+  const negativeCount = Math.floor(negativeSpan / safeSpacing);
+  const positiveCount = Math.floor(positiveSpan / safeSpacing);
+  const offsets: number[] = [];
+
+  for (let index = -negativeCount; index <= positiveCount; index += 1) {
+    offsets.push(index * safeSpacing);
+  }
+
+  return offsets;
+}
+
+function majorGridStep(bounds: { xMin: number; xMax: number; yMin: number; yMax: number }): number {
+  const span = Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
+  const rawStep = span / 10;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+
+  if (normalized <= 1) {
+    return magnitude;
+  }
+  if (normalized <= 2) {
+    return 2 * magnitude;
+  }
+  if (normalized <= 5) {
+    return 5 * magnitude;
+  }
+  return 10 * magnitude;
+}
+
+function isCardinalAngle(angleDeg: number): boolean {
+  const normalized = ((angleDeg % 90) + 90) % 90;
+  return Math.min(normalized, 90 - normalized) < 1e-6;
+}
+
+function scaleGridDimensions(columns: number, rows: number, densityMultiplier: number): { columns: number; rows: number } {
+  const target = columns * rows * densityMultiplier;
+  const scale = Math.sqrt(densityMultiplier);
+  let scaledColumns = Math.max(Math.round(columns * scale), 1);
+  let scaledRows = Math.max(Math.round(rows * scale), 1);
+
+  while (scaledColumns * scaledRows < target) {
+    const columnScale = scaledColumns / Math.max(columns, 1);
+    const rowScale = scaledRows / Math.max(rows, 1);
+    if (columnScale <= rowScale) {
+      scaledColumns += 1;
+    } else {
+      scaledRows += 1;
+    }
+  }
+
+  return {
+    columns: scaledColumns,
+    rows: scaledRows
   };
 }
 

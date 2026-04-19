@@ -2,7 +2,7 @@ import { elementSummary, FLOW_KIND_LABELS, formatNumber, getElementAngleDeg, get
 import { PotentialFlowRenderer } from "./render/renderer";
 import { snapPointToGrid } from "./render/viewport";
 import { AppController, EXAMPLE_PRESETS } from "./ui/controller";
-import type { ClickMode, FlowElementKind, Point, ViewModel } from "./types";
+import type { ClickMode, FlowElement, FlowElementKind, Point, ViewModel } from "./types";
 
 interface DragState {
   elementId: string;
@@ -202,7 +202,7 @@ export function startApp(): void {
 
     const clickMode = event.shiftKey ? flipClickMode(currentViewModel.state.clickMode) : currentViewModel.state.clickMode;
     const finalPoint = currentViewModel.state.snapToGrid && clickMode === "element"
-      ? snapPointToGrid(world, renderer.estimateSnapStep())
+      ? snapPointToGrid(world, snapStepForPlacementTemplate(currentViewModel, renderer))
       : world;
 
     if (clickMode === "streamline") {
@@ -238,7 +238,7 @@ export function startApp(): void {
       }
 
       const anchor = currentViewModel.state.snapToGrid
-        ? snapPointToGrid(world, renderer.estimateSnapStep())
+        ? snapPointToGrid(world, snapStepForElement(dragState.elementId, currentViewModel, renderer))
         : world;
       controller.moveElement(dragState.elementId, anchor);
       return;
@@ -442,6 +442,37 @@ function syncModeButtons(
 
 function flipClickMode(mode: ClickMode): ClickMode {
   return mode === "element" ? "streamline" : "element";
+}
+
+function snapStepForPlacementTemplate(viewModel: ViewModel, renderer: PotentialFlowRenderer): number {
+  const { kind, angleDeg } = viewModel.state.placement;
+  return snapStepForFlow(kind, angleDeg, renderer);
+}
+
+function snapStepForElement(id: string, viewModel: ViewModel, renderer: PotentialFlowRenderer): number {
+  const element = viewModel.state.elements.find((candidate) => candidate.id === id);
+  if (!element) {
+    return renderer.estimateSnapStep();
+  }
+
+  return snapStepForFlow(element.kind, getSnapAngleDeg(element), renderer);
+}
+
+function snapStepForFlow(kind: FlowElementKind, angleDeg: number, renderer: PotentialFlowRenderer): number {
+  if (kind === "uniform" && isCardinalAngle(angleDeg)) {
+    return renderer.estimateGridStep();
+  }
+
+  return renderer.estimateSnapStep();
+}
+
+function getSnapAngleDeg(element: FlowElement): number {
+  return element.kind === "uniform" ? element.angleDeg : 0;
+}
+
+function isCardinalAngle(angleDeg: number): boolean {
+  const normalized = ((angleDeg % 90) + 90) % 90;
+  return Math.min(normalized, 90 - normalized) < 1e-6;
 }
 
 function syncCanvasCursor(canvas: HTMLCanvasElement, isDraggingElement: boolean): void {

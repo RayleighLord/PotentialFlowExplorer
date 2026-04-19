@@ -10,6 +10,10 @@ interface Particle {
 }
 
 const SOURCE_SPAWN_PROBABILITY = 0.22;
+const ACTIVE_SINGULARITY_BUFFER_FACTOR = 0.007;
+const ACTIVE_SINGULARITY_BUFFER_MIN = 0.025;
+const CAPTURE_BUFFER_FACTOR = 0.007;
+const CAPTURE_BUFFER_MIN = 0.025;
 
 type SourceElement = FlowElement & {
   kind: "source";
@@ -105,7 +109,7 @@ export class ParticleEngine {
 
       if (
         !Number.isFinite(velocity.speed) ||
-        singularityDistance < viewport.worldHeight * 0.012 ||
+        singularityDistance < activeSingularityBuffer(viewport.worldHeight) ||
         isPointBlocked(previous, guides)
       ) {
         respawnParticle(particle, viewport, flowField, guides);
@@ -279,7 +283,7 @@ function isReusableAfterViewportChange(
     return false;
   }
 
-  return flowField.distanceToNearestSingularity({ x: particle.x, y: particle.y }) >= viewport.worldHeight * 0.012;
+  return flowField.distanceToNearestSingularity({ x: particle.x, y: particle.y }) >= activeSingularityBuffer(viewport.worldHeight);
 }
 
 function randomEmitterSpawnPoint(
@@ -321,10 +325,8 @@ function randomEmitterPoint(emitter: EmissiveElement, worldHeight: number): Poin
   switch (emitter.kind) {
     case "source":
       return randomPointAroundCenter(emitter.anchor, emitter.coreRadius, worldHeight);
-    case "doublet": {
-      const sourceCenter = doubletSourceCenter(emitter, worldHeight);
-      return randomPointAroundCenter(sourceCenter, emitter.coreRadius, worldHeight * 0.85);
-    }
+    case "doublet":
+      return randomPointAroundCenter(emitter.anchor, emitter.coreRadius, worldHeight * 0.85);
     default:
       return assertNever(emitter);
   }
@@ -332,8 +334,8 @@ function randomEmitterPoint(emitter: EmissiveElement, worldHeight: number): Poin
 
 function randomPointAroundCenter(center: Point, coreRadius: number, worldHeight: number): Point {
   const angle = Math.random() * Math.PI * 2;
-  const minimumRadius = Math.max(worldHeight * 0.011, coreRadius * 0.95, 0.03);
-  const maximumRadius = Math.max(worldHeight * 0.018, coreRadius * 1.35, minimumRadius + 0.02);
+  const minimumRadius = Math.max(worldHeight * 0.0065, coreRadius * 0.72, 0.02);
+  const maximumRadius = Math.max(worldHeight * 0.01, coreRadius * 0.96, minimumRadius + 0.014);
   const radiusT = Math.sqrt(Math.random());
   const spawnRadius = minimumRadius + (maximumRadius - minimumRadius) * radiusT;
 
@@ -388,7 +390,7 @@ function shouldCaptureParticleNearSingularity(
   flowField: FlowField,
   worldHeight: number
 ): boolean {
-  const baseCaptureRadius = Math.max(worldHeight * 0.01, 0.03);
+  const baseCaptureRadius = Math.max(worldHeight * CAPTURE_BUFFER_FACTOR, CAPTURE_BUFFER_MIN);
 
   for (const element of flowField.elements) {
     if (!isCapturingElement(element)) {
@@ -396,7 +398,7 @@ function shouldCaptureParticleNearSingularity(
     }
 
     const captureCenter = captureCenterForElement(element, worldHeight);
-    const captureRadius = Math.max(baseCaptureRadius, element.coreRadius * 1.4);
+    const captureRadius = Math.max(baseCaptureRadius, element.coreRadius * 1.05);
     const previousDistance = Math.hypot(previous.x - captureCenter.x, previous.y - captureCenter.y);
     const nextDistance = Math.hypot(next.x - captureCenter.x, next.y - captureCenter.y);
 
@@ -428,34 +430,10 @@ function captureCenterForElement(
     case "sink":
       return element.anchor;
     case "doublet":
-      return doubletSinkCenter(element, worldHeight);
+      return element.anchor;
     default:
       return assertNever(element);
   }
-}
-
-function doubletSourceCenter(element: DoubletElement, worldHeight: number): Point {
-  const axis = unitFromAngle(element.angleDeg);
-  const sign = element.strength >= 0 ? -1 : 1;
-  const offset = doubletLobeOffset(element, worldHeight);
-  return {
-    x: element.anchor.x + axis.x * sign * offset,
-    y: element.anchor.y + axis.y * sign * offset
-  };
-}
-
-function doubletSinkCenter(element: DoubletElement, worldHeight: number): Point {
-  const axis = unitFromAngle(element.angleDeg);
-  const sign = element.strength >= 0 ? 1 : -1;
-  const offset = doubletLobeOffset(element, worldHeight);
-  return {
-    x: element.anchor.x + axis.x * sign * offset,
-    y: element.anchor.y + axis.y * sign * offset
-  };
-}
-
-function doubletLobeOffset(element: DoubletElement, worldHeight: number): number {
-  return Math.max(worldHeight * 0.018, element.coreRadius * 2.2, 0.05);
 }
 
 function distancePointToSegment(point: Point, start: Point, end: Point): number {
@@ -484,14 +462,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function unitFromAngle(angleDeg: number): Point {
-  const radians = (angleDeg * Math.PI) / 180;
-  return {
-    x: Math.cos(radians),
-    y: Math.sin(radians)
-  };
-}
-
 function assertNever(value: never): never {
   throw new Error(`Unhandled value: ${String(value)}`);
 }
@@ -507,4 +477,8 @@ function signatureForViewport(viewport: Viewport): string {
     bounds.yMin.toFixed(4),
     bounds.yMax.toFixed(4)
   ].join(":");
+}
+
+function activeSingularityBuffer(worldHeight: number): number {
+  return Math.max(worldHeight * ACTIVE_SINGULARITY_BUFFER_FACTOR, ACTIVE_SINGULARITY_BUFFER_MIN);
 }

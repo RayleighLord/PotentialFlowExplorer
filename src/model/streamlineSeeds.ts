@@ -3,6 +3,8 @@ import { isPointBlocked } from "./domain";
 import type { Bounds, FlowElement, FlowField, Guide, Point, StagnationPoint, StreamlineSeed } from "../types";
 
 const TAU = 2 * Math.PI;
+const STREAMLINE_DENSITY_MULTIPLIER = 2;
+const UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE = 1.5;
 
 export function generateAutoStreamlineSeeds(
   flowField: FlowField,
@@ -10,7 +12,7 @@ export function generateAutoStreamlineSeeds(
   bounds: Bounds,
   guides: readonly Guide[],
   stagnationPoints: readonly StagnationPoint[] = [],
-  maxCount = 120
+  maxCount = 240
 ): StreamlineSeed[] {
   const visibleElements = elements.filter((element) => element.visible);
   if (visibleElements.length === 0) {
@@ -18,8 +20,8 @@ export function generateAutoStreamlineSeeds(
   }
 
   const span = Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
-  const minSpacing = Math.max(span / 120, 0.05);
-  const singularityBuffer = Math.max(span * 0.03, 0.08);
+  const minSpacing = Math.max(span / (120 * STREAMLINE_DENSITY_MULTIPLIER), 0.025);
+  const singularityBuffer = Math.max(span * 0.016, 0.05);
   const candidates = [
     ...createStagnationSeedCandidates(flowField, bounds, stagnationPoints),
     ...visibleElements.flatMap((element) => createElementSeedCandidates(element, bounds))
@@ -68,18 +70,35 @@ function createUniformSeeds(angleDeg: number, bounds: Bounds, span: number): Poi
     x: center.x - direction.x * upstreamDistance,
     y: center.y - direction.y * upstreamDistance
   };
-  const negativeSpan = distanceToBounds(origin, negate(normal), bounds) * 0.92;
-  const positiveSpan = distanceToBounds(origin, normal, bounds) * 0.92;
-  const totalCrossSpan = negativeSpan + positiveSpan;
-  const count = countFromSpan(totalCrossSpan, Math.max(span * 0.06, 0.45), 14, 36);
+  const rawNegativeSpan = distanceToBounds(origin, negate(normal), bounds);
+  const rawPositiveSpan = distanceToBounds(origin, normal, bounds);
 
+  if (isCardinalAngle(angleDeg)) {
+    const spacing = (majorGridStep(bounds) / 6) * UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE;
+    return createGridAlignedLineCandidates(origin, normal, rawNegativeSpan, rawPositiveSpan, spacing);
+  }
+
+  const negativeSpan = rawNegativeSpan * 0.96;
+  const positiveSpan = rawPositiveSpan * 0.96;
+  const totalCrossSpan = negativeSpan + positiveSpan;
+  const count = countFromSpan(
+    totalCrossSpan,
+    Math.max(span * 0.06, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
+    28,
+    72
+  );
   return createBalancedLineCandidates(origin, normal, -negativeSpan, positiveSpan, count);
 }
 
 function createSourceSinkSeeds(anchor: Point, coreRadius: number, span: number): Point[] {
-  const radius = Math.max(coreRadius * 6, span * 0.12);
+  const radius = Math.max(coreRadius * 2.2, span * 0.04);
   const circumference = TAU * radius;
-  const count = countFromSpan(circumference, Math.max(span * 0.06, 0.45), 14, 40);
+  const count = countFromSpan(
+    circumference,
+    Math.max(span * 0.06, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
+    28,
+    80
+  );
   return createBalancedRingCandidates(anchor, radius, count);
 }
 
@@ -91,16 +110,19 @@ function createDoubletSeeds(
   span: number
 ): Point[] {
   const axis = unitFromAngle(angleDeg);
-  const radialDirection = perpendicular(axis);
-  const outerRadius = Math.min(
-    distanceToBounds(anchor, radialDirection, bounds),
-    distanceToBounds(anchor, negate(radialDirection), bounds)
-  ) * 0.88;
-  const innerRadius = Math.max(coreRadius * 5, span * 0.07);
-  const countPerSide = countFromSpan(outerRadius - innerRadius, Math.max(span * 0.07, 0.45), 6, 18);
-  const positive = createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, countPerSide);
-  const negative = createRadialCandidates(anchor, negate(radialDirection), innerRadius, outerRadius, countPerSide);
-  return interleavePoints(positive, negative);
+  const normal = perpendicular(axis);
+  const innerRadius = Math.max(coreRadius * 2.1, span * 0.04);
+  const sideTargetSpacing = Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER;
+  const topDistance = distanceToBounds(anchor, normal, bounds);
+  const bottomDistance = distanceToBounds(anchor, negate(normal), bounds);
+  const topOuter = topDistance * 0.96;
+  const bottomOuter = bottomDistance * 0.96;
+  const topCount = countFromSpan(topOuter - innerRadius, sideTargetSpacing, 16, 36);
+  const bottomCount = countFromSpan(bottomOuter - innerRadius, sideTargetSpacing, 16, 36);
+  const top = createRadialCandidates(anchor, normal, innerRadius, topOuter, topCount);
+  const bottom = createRadialCandidates(anchor, negate(normal), innerRadius, bottomOuter, bottomCount);
+
+  return interleavePoints(top, bottom);
 }
 
 function createVortexSeeds(
@@ -109,14 +131,34 @@ function createVortexSeeds(
   bounds: Bounds,
   span: number
 ): Point[] {
-  const radialDirection = preferredRadialDirection(anchor, bounds);
-  const innerRadius = Math.max(coreRadius * 4, span * 0.07);
+  const radialDirection = { x: 1, y: 0 } satisfies Point;
+  const oppositeDirection = { x: -1, y: 0 } satisfies Point;
+  const innerRadius = Math.max(coreRadius * 2, span * 0.04);
   const outerRadius = Math.max(
     innerRadius + span * 0.18,
-    distanceToBounds(anchor, radialDirection, bounds) * 0.9
+    distanceToBounds(anchor, radialDirection, bounds) * 0.995
   );
-  const count = countFromSpan(outerRadius - innerRadius, Math.max(span * 0.07, 0.45), 8, 18);
-  return createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, count);
+  const oppositeOuterRadius = Math.max(
+    innerRadius + span * 0.18,
+    distanceToBounds(anchor, oppositeDirection, bounds) * 0.995
+  );
+  const count = countFromSpan(
+    outerRadius - innerRadius,
+    Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
+    16,
+    36
+  );
+  const oppositeCount = countFromSpan(
+    oppositeOuterRadius - innerRadius,
+    Math.max(span * 0.07, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
+    16,
+    36
+  );
+
+  return interleavePoints(
+    createRadialCandidates(anchor, radialDirection, innerRadius, outerRadius, count),
+    createRadialCandidates(anchor, oppositeDirection, innerRadius, oppositeOuterRadius, oppositeCount)
+  );
 }
 
 function createStagnationSeedCandidates(
@@ -174,6 +216,19 @@ function createBalancedLineCandidates(
   return centerOutIndices(count).map((index) => ({
     x: origin.x + direction.x * offsets[index],
     y: origin.y + direction.y * offsets[index]
+  }));
+}
+
+function createGridAlignedLineCandidates(
+  origin: Point,
+  direction: Point,
+  negativeSpan: number,
+  positiveSpan: number,
+  spacing: number
+): Point[] {
+  return centeredGridOffsets(negativeSpan, positiveSpan, spacing).map((offset) => ({
+    x: origin.x + direction.x * offset,
+    y: origin.y + direction.y * offset
   }));
 }
 
@@ -330,6 +385,42 @@ function distanceBetween(left: Point, right: Point): number {
 
 function interpolate(start: number, end: number, progress: number): number {
   return start + (end - start) * progress;
+}
+
+function centeredGridOffsets(negativeSpan: number, positiveSpan: number, spacing: number): number[] {
+  const safeSpacing = Math.max(spacing, 1e-6);
+  const negativeCount = Math.floor(negativeSpan / safeSpacing);
+  const positiveCount = Math.floor(positiveSpan / safeSpacing);
+  const offsets: number[] = [];
+
+  for (let index = -negativeCount; index <= positiveCount; index += 1) {
+    offsets.push(index * safeSpacing);
+  }
+
+  return offsets;
+}
+
+function majorGridStep(bounds: Bounds): number {
+  const span = Math.min(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
+  const rawStep = span / 10;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+
+  if (normalized <= 1) {
+    return magnitude;
+  }
+  if (normalized <= 2) {
+    return 2 * magnitude;
+  }
+  if (normalized <= 5) {
+    return 5 * magnitude;
+  }
+  return 10 * magnitude;
+}
+
+function isCardinalAngle(angleDeg: number): boolean {
+  const normalized = ((angleDeg % 90) + 90) % 90;
+  return Math.min(normalized, 90 - normalized) < 1e-6;
 }
 
 function countFromSpan(span: number, targetSpacing: number, minCount: number, maxCount: number): number {

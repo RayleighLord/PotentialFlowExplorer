@@ -50,6 +50,6 @@ describe("solveStreamline", () => {
     );
 
     const minRadius = Math.min(...streamline.points.map((point) => Math.hypot(point.x, point.y)));
-    expect(minRadius).toBeLessThan(0.08);
+    expect(minRadius).toBeLessThan(0.06);
   });
 });

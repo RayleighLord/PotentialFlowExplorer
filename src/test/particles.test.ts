@@ -46,7 +46,7 @@ describe("ParticleEngine resize behavior", () => {
     expect(particles.slice(2).every((particle) => Math.hypot(particle.x, particle.y) > 1)).toBe(true);
   });
 
-  it("avoids doublet-side emissions when resize adds new particles", () => {
+  it("avoids doublet-center bursts when resize adds new particles", () => {
     const field = createFlowField([
       {
         id: "doublet",
@@ -69,12 +69,11 @@ describe("ParticleEngine resize behavior", () => {
 
     engine.reset(4, viewport, field, []);
 
-    const emissiveSide = { x: -0.264, y: 0 };
     expect({ x: particles[0].x, y: particles[0].y }).toEqual(initialPosition);
     expect(
       particles
         .slice(1)
-        .every((particle) => Math.hypot(particle.x - emissiveSide.x, particle.y - emissiveSide.y) > 0.25)
+        .every((particle) => Math.hypot(particle.x, particle.y) > 0.25)
     ).toBe(true);
   });
 
@@ -106,6 +105,57 @@ describe("ParticleEngine resize behavior", () => {
     expect(particles[0].y).toBeGreaterThanOrEqual(narrowViewport.bounds.yMin);
     expect(particles[0].y).toBeLessThanOrEqual(narrowViewport.bounds.yMax);
     expect(Math.hypot(particles[0].x, particles[0].y)).toBeGreaterThan(1);
+  });
+});
+
+describe("ParticleEngine near-core emission", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("spawns source particles close enough to read as emerging from the marker", () => {
+    const field = createFlowField([
+      {
+        id: "source",
+        kind: "source",
+        anchor: { x: 0, y: 0 },
+        visible: true,
+        strength: 5,
+        coreRadius: 0.14
+      }
+    ]);
+    const viewport = createTestViewport(800, 800);
+    const engine = new ParticleEngine();
+
+    mockRandomSequence([0.1, 0, 0, 0.25, 0.4, 0.5]);
+
+    engine.reset(1, viewport, field, []);
+
+    const particle = getParticles(engine)[0];
+    expect(Math.hypot(particle.x, particle.y)).toBeLessThan(0.14);
+  });
+
+  it("spawns doublet particles close to the placed center", () => {
+    const field = createFlowField([
+      {
+        id: "doublet",
+        kind: "doublet",
+        anchor: { x: 0, y: 0 },
+        visible: true,
+        strength: 4,
+        angleDeg: 0,
+        coreRadius: 0.12
+      }
+    ]);
+    const viewport = createTestViewport(800, 800);
+    const engine = new ParticleEngine();
+
+    mockRandomSequence([0.1, 0, 0, 0.25, 0.4, 0.5]);
+
+    engine.reset(1, viewport, field, []);
+
+    const particle = getParticles(engine)[0];
+    expect(Math.hypot(particle.x, particle.y)).toBeLessThan(0.14);
   });
 });
 
