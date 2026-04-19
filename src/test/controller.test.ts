@@ -40,7 +40,7 @@ describe("AppController fixed view", () => {
     expect(controller.getViewModel().state.placement.magnitude).toBe(5);
 
     controller.setPlacementTemplate({ kind: "vortex" });
-    expect(controller.getViewModel().state.placement.magnitude).toBe(50);
+    expect(controller.getViewModel().state.placement.magnitude).toBe(30);
   });
 
   it("resets custom streamline seeds back to the default automatic streamlines", () => {

@@ -285,10 +285,6 @@ export class PotentialFlowRenderer {
     this.renderGuides(context, state.guides);
     this.renderStreamlines(context, this.viewModel.streamlines, state.guides);
 
-    if (state.showStagnationPoints) {
-      this.renderStagnationPoints(context, this.viewModel.stagnationPoints);
-    }
-
     if (state.showMarkers) {
       this.renderElementMarkers(context, state.elements, state.selectedElementId);
     }

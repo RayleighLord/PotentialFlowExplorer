@@ -19,7 +19,18 @@ export const FLOW_KIND_LABELS: Record<FlowElementKind, string> = {
 };
 
 export function defaultPlacementMagnitude(kind: FlowElementKind): number {
-  return kind === "uniform" ? 5 : 50;
+  switch (kind) {
+    case "uniform":
+      return 5;
+    case "vortex":
+      return 30;
+    case "source":
+    case "sink":
+    case "doublet":
+      return 50;
+    default:
+      return assertNever(kind);
+  }
 }
 
 export function createElementFromTemplate(

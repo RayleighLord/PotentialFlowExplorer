@@ -1,4 +1,4 @@
-import { elementSummary, FLOW_KIND_LABELS, formatNumber, getElementAngleDeg, getElementCoreRadius, getPrimaryMagnitude, hasAngleParameter, hasCoreRadiusParameter, primaryMagnitudeLabel } from "./model/flowElements";
+import { elementSummary, FLOW_KIND_LABELS, getElementAngleDeg, getPrimaryMagnitude, hasAngleParameter } from "./model/flowElements";
 import { PotentialFlowRenderer } from "./render/renderer";
 import { snapPointToGrid } from "./render/viewport";
 import { AppController, EXAMPLE_PRESETS } from "./ui/controller";
@@ -18,40 +18,31 @@ export function startApp(): void {
   const sceneCanvas = getElement<HTMLCanvasElement>("scene-canvas");
   const flowCanvas = getElement<HTMLCanvasElement>("flow-canvas");
   const exampleSelect = getElement<HTMLSelectElement>("example-select");
-  const exampleDescription = getElement<HTMLElement>("example-description");
-  const toolSelect = getElement<HTMLSelectElement>("tool-select");
+  const toolButtons = getToolButtons();
+  const placementTitle = getElement<HTMLElement>("placement-title");
+  const placementFormula = getElement<HTMLElement>("placement-formula");
   const magnitudeLabel = getElement<HTMLElement>("magnitude-label");
   const magnitudeInput = getElement<HTMLInputElement>("magnitude-input");
   const angleField = getElement<HTMLElement>("angle-field");
   const angleInput = getElement<HTMLInputElement>("angle-input");
-  const coreRadiusField = getElement<HTMLElement>("core-radius-field");
-  const coreRadiusInput = getElement<HTMLInputElement>("core-radius-input");
+  const selectedCard = getElement<HTMLElement>("selected-card");
+  const selectedTitle = getElement<HTMLElement>("selected-title");
   const selectedSummary = getElement<HTMLElement>("selected-summary");
-  const selectedInspector = getElement<HTMLElement>("selected-inspector");
   const selectedMagnitudeLabel = getElement<HTMLElement>("selected-magnitude-label");
   const selectedMagnitudeInput = getElement<HTMLInputElement>("selected-magnitude-input");
   const selectedAngleField = getElement<HTMLElement>("selected-angle-field");
   const selectedAngleInput = getElement<HTMLInputElement>("selected-angle-input");
-  const selectedCoreRadiusField = getElement<HTMLElement>("selected-core-radius-field");
-  const selectedCoreRadiusInput = getElement<HTMLInputElement>("selected-core-radius-input");
-  const applySelectedButton = getElement<HTMLButtonElement>("apply-selected-button");
   const deleteSelectedButton = getElement<HTMLButtonElement>("delete-selected-button");
   const animationToggle = getElement<HTMLInputElement>("animation-toggle");
   const heatmapToggle = getElement<HTMLInputElement>("heatmap-toggle");
   const gridToggle = getElement<HTMLInputElement>("grid-toggle");
   const markersToggle = getElement<HTMLInputElement>("markers-toggle");
-  const stagnationToggle = getElement<HTMLInputElement>("stagnation-toggle");
   const snapToggle = getElement<HTMLInputElement>("snap-toggle");
   const particleDensityInput = getElement<HTMLInputElement>("particle-density-input");
   const resetStreamlinesButton = getElement<HTMLButtonElement>("reset-streamlines-button");
   const clearElementsButton = getElement<HTMLButtonElement>("clear-elements-button");
   const elementCount = getElement<HTMLElement>("element-count");
   const elementList = getElement<HTMLElement>("element-list");
-  const stagnationCount = getElement<HTMLElement>("stagnation-count");
-  const stagnationList = getElement<HTMLElement>("stagnation-list");
-  const cursorPosition = getElement<HTMLElement>("cursor-position");
-  const cursorVelocity = getElement<HTMLElement>("cursor-velocity");
-  const cursorPotential = getElement<HTMLElement>("cursor-potential");
 
   const controller = new AppController();
   const renderer = new PotentialFlowRenderer(sceneCanvas, flowCanvas);
@@ -64,40 +55,34 @@ export function startApp(): void {
   let isSpacePressed = false;
 
   populateExampleSelect(exampleSelect);
-  populateToolSelect(toolSelect);
 
   controller.subscribe((viewModel) => {
     currentViewModel = viewModel;
     renderer.render(viewModel);
     syncControls(viewModel, {
       exampleSelect,
-      exampleDescription,
-      toolSelect,
+      toolButtons,
+      placementTitle,
+      placementFormula,
       magnitudeLabel,
       magnitudeInput,
       angleField,
       angleInput,
-      coreRadiusField,
-      coreRadiusInput,
+      selectedCard,
+      selectedTitle,
       selectedSummary,
-      selectedInspector,
       selectedMagnitudeLabel,
       selectedMagnitudeInput,
       selectedAngleField,
       selectedAngleInput,
-      selectedCoreRadiusField,
-      selectedCoreRadiusInput,
       animationToggle,
       heatmapToggle,
       gridToggle,
       markersToggle,
-      stagnationToggle,
       snapToggle,
       particleDensityInput,
       elementCount,
-      elementList,
-      stagnationCount,
-      stagnationList
+      elementList
     }, controller);
     syncCanvasCursor(flowCanvas, !!dragState);
   });
@@ -108,8 +93,14 @@ export function startApp(): void {
     }
   });
 
-  toolSelect.addEventListener("change", () => {
-    controller.setPlacementTemplate({ kind: toolSelect.value as FlowElementKind });
+  toolButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const kind = button.dataset.toolKind as FlowElementKind | undefined;
+      if (!kind) {
+        return;
+      }
+      controller.setPlacementTemplate({ kind });
+    });
   });
   magnitudeInput.addEventListener("input", () => {
     controller.setPlacementTemplate({ magnitude: Number(magnitudeInput.value) });
@@ -117,15 +108,21 @@ export function startApp(): void {
   angleInput.addEventListener("input", () => {
     controller.setPlacementTemplate({ angleDeg: Number(angleInput.value) });
   });
-  coreRadiusInput.addEventListener("input", () => {
-    controller.setPlacementTemplate({ coreRadius: Number(coreRadiusInput.value) });
-  });
 
-  applySelectedButton.addEventListener("click", () => {
+  selectedMagnitudeInput.addEventListener("input", () => {
+    if (!selectedMagnitudeInput.validity.valid || selectedMagnitudeInput.value.trim() === "") {
+      return;
+    }
     controller.updateSelectedElement({
-      magnitude: Number(selectedMagnitudeInput.value),
-      angleDeg: Number(selectedAngleInput.value),
-      coreRadius: Number(selectedCoreRadiusInput.value)
+      magnitude: Number(selectedMagnitudeInput.value)
+    });
+  });
+  selectedAngleInput.addEventListener("input", () => {
+    if (!selectedAngleInput.validity.valid || selectedAngleInput.value.trim() === "") {
+      return;
+    }
+    controller.updateSelectedElement({
+      angleDeg: Number(selectedAngleInput.value)
     });
   });
   deleteSelectedButton.addEventListener("click", () => controller.deleteSelectedElement());
@@ -134,7 +131,6 @@ export function startApp(): void {
   heatmapToggle.addEventListener("change", () => controller.setShowHeatmap(heatmapToggle.checked));
   gridToggle.addEventListener("change", () => controller.setShowGrid(gridToggle.checked));
   markersToggle.addEventListener("change", () => controller.setShowMarkers(markersToggle.checked));
-  stagnationToggle.addEventListener("change", () => controller.setShowStagnationPoints(stagnationToggle.checked));
   snapToggle.addEventListener("change", () => controller.setSnapToGrid(snapToggle.checked));
   particleDensityInput.addEventListener("input", () => controller.setParticleDensity(Number(particleDensityInput.value)));
 
@@ -232,13 +228,6 @@ export function startApp(): void {
 
   flowCanvas.addEventListener("pointermove", (event) => {
     const world = renderer.clientToWorld(event.clientX, event.clientY);
-    if (world) {
-      const evaluation = currentViewModel.flowField.evaluate(world);
-      cursorPosition.textContent = `x=${formatNumber(world.x)}, y=${formatNumber(world.y)}`;
-      cursorVelocity.textContent = `u=${formatNumber(evaluation.u)}, v=${formatNumber(evaluation.v)}, |V|=${formatNumber(evaluation.speed)}`;
-      cursorPotential.textContent = `φ=${formatNumber(evaluation.phi)}, ψ=${formatNumber(evaluation.psi)}`;
-    }
-
     if (dragState && world) {
       if (!dragState.hasMoved) {
         const dragDistance = Math.hypot(
@@ -283,9 +272,6 @@ export function startApp(): void {
   });
 
   flowCanvas.addEventListener("pointerleave", () => {
-    cursorPosition.textContent = "—";
-    cursorVelocity.textContent = "—";
-    cursorPotential.textContent = "—";
   });
 
   flowCanvas.addEventListener("contextmenu", (event) => {
@@ -318,84 +304,61 @@ function populateExampleSelect(select: HTMLSelectElement): void {
   );
 }
 
-function populateToolSelect(select: HTMLSelectElement): void {
-  select.replaceChildren(
-    ...(["uniform", "source", "sink", "vortex", "doublet"] as const).map((kind) => {
-      const option = document.createElement("option");
-      option.value = kind;
-      option.textContent = FLOW_KIND_LABELS[kind];
-      return option;
-    })
-  );
-}
-
 function syncControls(
   viewModel: ViewModel,
   elements: {
     exampleSelect: HTMLSelectElement;
-    exampleDescription: HTMLElement;
-    toolSelect: HTMLSelectElement;
+    toolButtons: HTMLButtonElement[];
+    placementTitle: HTMLElement;
+    placementFormula: HTMLElement;
     magnitudeLabel: HTMLElement;
     magnitudeInput: HTMLInputElement;
     angleField: HTMLElement;
     angleInput: HTMLInputElement;
-    coreRadiusField: HTMLElement;
-    coreRadiusInput: HTMLInputElement;
+    selectedCard: HTMLElement;
+    selectedTitle: HTMLElement;
     selectedSummary: HTMLElement;
-    selectedInspector: HTMLElement;
     selectedMagnitudeLabel: HTMLElement;
     selectedMagnitudeInput: HTMLInputElement;
     selectedAngleField: HTMLElement;
     selectedAngleInput: HTMLInputElement;
-    selectedCoreRadiusField: HTMLElement;
-    selectedCoreRadiusInput: HTMLInputElement;
     animationToggle: HTMLInputElement;
     heatmapToggle: HTMLInputElement;
     gridToggle: HTMLInputElement;
     markersToggle: HTMLInputElement;
-    stagnationToggle: HTMLInputElement;
     snapToggle: HTMLInputElement;
     particleDensityInput: HTMLInputElement;
     elementCount: HTMLElement;
     elementList: HTMLElement;
-    stagnationCount: HTMLElement;
-    stagnationList: HTMLElement;
   },
   controller: AppController
 ): void {
   elements.exampleSelect.value = viewModel.state.exampleId ?? "";
-  elements.exampleDescription.textContent = EXAMPLE_PRESETS.find((preset) => preset.id === viewModel.state.exampleId)?.description ?? "Build your own superposition by placing elementary flows on the canvas.";
-
-  elements.toolSelect.value = viewModel.state.placement.kind;
-  elements.magnitudeLabel.textContent = primaryMagnitudeLabel(viewModel.state.placement.kind);
+  syncToolButtons(viewModel.state.placement.kind, elements.toolButtons);
+  elements.placementTitle.textContent = FLOW_KIND_LABELS[viewModel.state.placement.kind];
+  elements.placementFormula.innerHTML = mathMarkupForDefinition(viewModel.state.placement.kind);
+  elements.magnitudeLabel.innerHTML = mathMarkupForMagnitudeVariable(viewModel.state.placement.kind);
   syncNumericInput(elements.magnitudeInput, viewModel.state.placement.magnitude);
   elements.angleField.classList.toggle("is-hidden", !hasAngleParameter(viewModel.state.placement.kind));
   syncNumericInput(elements.angleInput, viewModel.state.placement.angleDeg);
-  elements.coreRadiusField.classList.toggle("is-hidden", !hasCoreRadiusParameter(viewModel.state.placement.kind));
-  syncNumericInput(elements.coreRadiusInput, viewModel.state.placement.coreRadius);
 
   const selectedElement = controller.getSelectedElement();
   if (!selectedElement) {
-    elements.selectedSummary.textContent = "Click or drag a marker to inspect and edit it.";
-    elements.selectedSummary.classList.add("is-empty");
-    elements.selectedInspector.classList.add("is-disabled");
+    elements.selectedCard.classList.add("is-hidden");
   } else {
+    elements.selectedCard.classList.remove("is-hidden");
+    elements.selectedTitle.textContent = FLOW_KIND_LABELS[selectedElement.kind];
     elements.selectedSummary.textContent = elementSummary(selectedElement);
-    elements.selectedSummary.classList.remove("is-empty");
-    elements.selectedInspector.classList.remove("is-disabled");
-    elements.selectedMagnitudeLabel.textContent = primaryMagnitudeLabel(selectedElement.kind);
+    elements.selectedMagnitudeLabel.innerHTML = mathMarkupForMagnitudeVariable(selectedElement.kind);
     syncNumericInput(elements.selectedMagnitudeInput, getPrimaryMagnitude(selectedElement));
     elements.selectedAngleField.classList.toggle("is-hidden", !hasAngleParameter(selectedElement.kind));
     syncNumericInput(elements.selectedAngleInput, getElementAngleDeg(selectedElement));
-    elements.selectedCoreRadiusField.classList.toggle("is-hidden", !hasCoreRadiusParameter(selectedElement.kind));
-    syncNumericInput(elements.selectedCoreRadiusInput, getElementCoreRadius(selectedElement));
   }
 
   elements.animationToggle.checked = viewModel.state.animationEnabled;
   elements.heatmapToggle.checked = viewModel.state.showHeatmap;
   elements.gridToggle.checked = viewModel.state.showGrid;
   elements.markersToggle.checked = viewModel.state.showMarkers;
-  elements.stagnationToggle.checked = viewModel.state.showStagnationPoints;
   elements.snapToggle.checked = viewModel.state.snapToGrid;
   elements.particleDensityInput.value = `${viewModel.state.particleDensity}`;
 
@@ -433,22 +396,12 @@ function syncControls(
   } else {
     elements.elementList.classList.remove("is-empty");
   }
+}
 
-  elements.stagnationCount.textContent = `${viewModel.stagnationPoints.length}`;
-  elements.stagnationList.replaceChildren(
-    ...viewModel.stagnationPoints.map((point, index) => {
-      const row = document.createElement("div");
-      row.className = "stack-row";
-      row.textContent = `#${index + 1} • (${formatNumber(point.x)}, ${formatNumber(point.y)}) • residual ${formatNumber(point.residual)}`;
-      return row;
-    })
-  );
-  if (viewModel.stagnationPoints.length === 0) {
-    elements.stagnationList.textContent = "No stagnation points detected in the visible window.";
-    elements.stagnationList.classList.add("is-empty");
-  } else {
-    elements.stagnationList.classList.remove("is-empty");
-  }
+function syncToolButtons(activeKind: FlowElementKind, buttons: readonly HTMLButtonElement[]): void {
+  buttons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.toolKind === activeKind);
+  });
 }
 
 function snapStepForPlacementTemplate(viewModel: ViewModel, renderer: PotentialFlowRenderer): number {
@@ -497,6 +450,43 @@ function syncNumericInput(input: HTMLInputElement, value: number): void {
   }
 
   input.value = `${value}`;
+}
+
+function getToolButtons(): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>("[data-tool-kind]"));
+}
+
+function mathMarkupForMagnitudeVariable(kind: FlowElementKind): string {
+  switch (kind) {
+    case "uniform":
+      return String.raw`<span class="formula-symbol">U<sub>&infin;</sub></span>`;
+    case "source":
+    case "sink":
+      return String.raw`<span class="formula-symbol">Q</span>`;
+    case "vortex":
+      return String.raw`<span class="formula-symbol">&Gamma;</span>`;
+    case "doublet":
+      return String.raw`<span class="formula-symbol">&mu;</span>`;
+    default:
+      return "";
+  }
+}
+
+function mathMarkupForDefinition(kind: FlowElementKind): string {
+  switch (kind) {
+    case "uniform":
+      return String.raw`<span class="formula-math"><i>W</i>(<i>z</i>) = U<sub>&infin;</sub> e<sup>&minus;i&alpha;</sup> z</span>`;
+    case "source":
+      return String.raw`<span class="formula-math"><i>W</i>(<i>z</i>) = <span class="formula-frac"><span>Q</span><span>2&pi;</span></span> log(<i>z</i> &minus; z<sub>0</sub>)</span>`;
+    case "sink":
+      return String.raw`<span class="formula-math"><i>W</i>(<i>z</i>) = &minus;<span class="formula-frac"><span>Q</span><span>2&pi;</span></span> log(<i>z</i> &minus; z<sub>0</sub>)</span>`;
+    case "vortex":
+      return String.raw`<span class="formula-math"><i>W</i>(<i>z</i>) = &minus;i<span class="formula-frac"><span>&Gamma;</span><span>2&pi;</span></span> log(<i>z</i> &minus; z<sub>0</sub>)</span>`;
+    case "doublet":
+      return String.raw`<span class="formula-math"><i>W</i>(<i>z</i>) = <span class="formula-frac"><span>&mu; e<sup>&minus;i&alpha;</sup></span><span>2&pi;(<i>z</i> &minus; z<sub>0</sub>)</span></span></span>`;
+    default:
+      return "";
+  }
 }
 
 function isTextEntryTarget(target: EventTarget | null): boolean {

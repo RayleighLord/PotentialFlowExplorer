@@ -16,43 +16,20 @@
         <canvas id="flow-canvas" aria-label="Interactive potential-flow visualization"></canvas>
       </div>
 
-      <aside class="hud-panel">
-        <div class="hud-card hud-header-card">
-          <p class="eyebrow">Potential-flow studio</p>
-          <h1>Interactive superposition of classical 2D potential flows</h1>
-          <p class="muted-copy">
-            Place singularities, drag them, seed streamlines, and inspect how the analytical flow field changes in real time.
-          </p>
-        </div>
-
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Examples</h2>
-          </div>
-          <label class="field">
-            <span class="field-label">Preset library</span>
-            <select id="example-select" class="field-input"></select>
-          </label>
-          <p id="example-description" class="small-copy"></p>
+      <div class="tool-cluster">
+        <section class="hud-card compact-card tool-buttons-panel">
+          <button class="tool-button" data-tool-kind="uniform" type="button">Uniform</button>
+          <button class="tool-button" data-tool-kind="source" type="button">Source</button>
+          <button class="tool-button" data-tool-kind="sink" type="button">Sink</button>
+          <button class="tool-button" data-tool-kind="vortex" type="button">Vortex</button>
+          <button class="tool-button" data-tool-kind="doublet" type="button">Doublet</button>
         </section>
 
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Interaction</h2>
+        <section class="hud-card placement-panel compact-card">
+          <div class="section-header compact-header">
+            <h2 id="placement-title">Source</h2>
           </div>
-          <p class="small-copy">
-            Left-click places an element. Middle-click, or hold Space and left-click, seeds a streamline. Right-click deletes the element under the cursor. Click a selected element again to deselect it.
-          </p>
-        </section>
-
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Placement tool</h2>
-          </div>
-          <label class="field">
-            <span class="field-label">Elementary flow</span>
-            <select id="tool-select" class="field-input"></select>
-          </label>
+          <p id="placement-formula" class="formula-copy"></p>
           <div class="field-grid">
             <label class="field">
               <span id="magnitude-label" class="field-label">Strength</span>
@@ -62,108 +39,108 @@
               <span class="field-label">Angle (deg)</span>
               <input id="angle-input" class="field-input" type="number" step="any" />
             </label>
-            <label id="core-radius-field" class="field">
-              <span class="field-label">Core radius</span>
-              <input id="core-radius-input" class="field-input" type="number" min="0" step="any" />
-            </label>
           </div>
         </section>
+      </div>
 
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Selected element</h2>
+      <section id="selected-card" class="hud-card selected-panel compact-card is-hidden">
+        <div class="section-header compact-header">
+          <h2 id="selected-title">Edit element</h2>
+        </div>
+        <p id="selected-summary" class="small-copy"></p>
+        <div id="selected-inspector">
+          <div class="field-grid">
+            <label class="field">
+              <span id="selected-magnitude-label" class="field-label">Strength</span>
+              <input id="selected-magnitude-input" class="field-input" type="number" step="any" />
+            </label>
+            <label id="selected-angle-field" class="field">
+              <span class="field-label">Angle (deg)</span>
+              <input id="selected-angle-input" class="field-input" type="number" step="any" />
+            </label>
           </div>
-          <p id="selected-summary" class="small-copy is-empty">Click or drag a marker to inspect and edit it.</p>
-          <div id="selected-inspector" class="inspector is-disabled">
-            <div class="field-grid">
-              <label class="field">
-                <span id="selected-magnitude-label" class="field-label">Strength</span>
-                <input id="selected-magnitude-input" class="field-input" type="number" step="any" />
-              </label>
-              <label id="selected-angle-field" class="field">
-                <span class="field-label">Angle (deg)</span>
-                <input id="selected-angle-input" class="field-input" type="number" step="any" />
-              </label>
-              <label id="selected-core-radius-field" class="field">
-                <span class="field-label">Core radius</span>
-                <input id="selected-core-radius-input" class="field-input" type="number" min="0" step="any" />
-              </label>
-            </div>
-            <div class="button-row">
-              <button id="apply-selected-button" class="primary-button" type="button">Apply</button>
-              <button id="delete-selected-button" class="ghost-button" type="button">Delete</button>
-            </div>
+          <div class="button-row selected-actions">
+            <button id="delete-selected-button" class="ghost-button" type="button">Delete</button>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Display</h2>
+      <aside class="elements-panel">
+        <section class="hud-card compact-card">
+          <div class="elements-actions">
+            <button id="reset-streamlines-button" class="primary-button compact-action-button" type="button">Reset streamlines</button>
+            <button id="clear-elements-button" class="primary-button compact-action-button" type="button">Clear elements</button>
           </div>
-          <div class="toggle-stack">
-            <label class="toggle-row">
-              <span>Animate particles</span>
-              <input id="animation-toggle" type="checkbox" />
-            </label>
-            <label class="toggle-row">
-              <span>Show speed heatmap</span>
-              <input id="heatmap-toggle" type="checkbox" />
-            </label>
-            <label class="toggle-row">
-              <span>Show grid</span>
-              <input id="grid-toggle" type="checkbox" />
-            </label>
-            <label class="toggle-row">
-              <span>Show markers</span>
-              <input id="markers-toggle" type="checkbox" />
-            </label>
-            <label class="toggle-row">
-              <span>Show stagnation points</span>
-              <input id="stagnation-toggle" type="checkbox" />
-            </label>
-            <label class="toggle-row">
-              <span>Snap placed elements to grid</span>
-              <input id="snap-toggle" type="checkbox" />
-            </label>
-          </div>
-          <label class="field">
-            <span class="field-label">Particle density</span>
-            <input id="particle-density-input" class="range-input" type="range" min="0.5" max="2.4" step="0.1" />
-          </label>
-        </section>
-
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Actions</h2>
-          </div>
-          <div class="button-grid">
-            <button id="reset-streamlines-button" class="primary-button" type="button">Reset streamlines</button>
-            <button id="clear-elements-button" class="ghost-button" type="button">Clear elements</button>
-          </div>
-        </section>
-
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Active elements</h2>
+          <div class="section-header compact-header">
+            <h2>Elements</h2>
             <span id="element-count" class="pill-count"></span>
           </div>
-          <div id="element-list" class="stack-list"></div>
-        </section>
-
-        <section class="hud-card">
-          <div class="section-header">
-            <h2>Stagnation points</h2>
-            <span id="stagnation-count" class="pill-count"></span>
-          </div>
-          <div id="stagnation-list" class="stack-list"></div>
+          <div id="element-list" class="stack-list compact-list"></div>
         </section>
       </aside>
 
-      <div class="status-bar">
-        <div class="status-chip"><span class="status-label">Cursor</span><span id="cursor-position">—</span></div>
-        <div class="status-chip"><span class="status-label">Velocity</span><span id="cursor-velocity">—</span></div>
-        <div class="status-chip"><span class="status-label">Potential</span><span id="cursor-potential">—</span></div>
+      <section class="hud-card compact-card examples-panel">
+        <div class="section-header compact-header">
+          <h2>Examples</h2>
+        </div>
+        <select id="example-select" class="field-input"></select>
+      </section>
+
+      <div class="bottom-right-stack">
+        <details class="hud-card compact-card controls-panel">
+          <summary class="advanced-summary">Controls</summary>
+          <div class="advanced-body">
+            <p class="small-copy controls-copy">
+              Left-click places the active element.
+            </p>
+            <p class="small-copy controls-copy">
+              Left-click and drag moves an existing element.
+            </p>
+            <p class="small-copy controls-copy">
+              Clicking a selected element again deselects it.
+            </p>
+            <p class="small-copy controls-copy">
+              Middle-click, or hold Space and left-click, seeds a streamline.
+            </p>
+            <p class="small-copy controls-copy">
+              Right-click deletes the element under the cursor.
+            </p>
+          </div>
+        </details>
+
+        <details class="hud-card compact-card advanced-panel">
+          <summary class="advanced-summary">Advanced options</summary>
+          <div class="advanced-body">
+            <div class="toggle-stack">
+              <label class="toggle-row">
+                <span>Animate particles</span>
+                <input id="animation-toggle" type="checkbox" />
+              </label>
+              <label class="toggle-row">
+                <span>Show speed heatmap</span>
+                <input id="heatmap-toggle" type="checkbox" />
+              </label>
+              <label class="toggle-row">
+                <span>Show grid</span>
+                <input id="grid-toggle" type="checkbox" />
+              </label>
+              <label class="toggle-row">
+                <span>Show markers</span>
+                <input id="markers-toggle" type="checkbox" />
+              </label>
+              <label class="toggle-row">
+                <span>Snap placed elements to grid</span>
+                <input id="snap-toggle" type="checkbox" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">Particle density</span>
+              <input id="particle-density-input" class="range-input" type="range" min="0.5" max="2.4" step="0.1" />
+            </label>
+          </div>
+        </details>
       </div>
+
     </div>
 
     <script type="module" src="/src/main.ts"></script>
