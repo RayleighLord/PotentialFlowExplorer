@@ -57,6 +57,7 @@ export function startApp(): void {
   populateExampleSelect(exampleSelect);
 
   controller.subscribe((viewModel) => {
+    const previousSelectedElementId = currentViewModel.state.selectedElementId;
     currentViewModel = viewModel;
     renderer.render(viewModel);
     syncControls(viewModel, {
@@ -83,7 +84,7 @@ export function startApp(): void {
       particleDensityInput,
       elementCount,
       elementList
-    }, controller);
+    }, controller, previousSelectedElementId);
     syncCanvasCursor(flowCanvas, !!dragState);
   });
 
@@ -331,7 +332,8 @@ function syncControls(
     elementCount: HTMLElement;
     elementList: HTMLElement;
   },
-  controller: AppController
+  controller: AppController,
+  previousSelectedElementId: string | null
 ): void {
   elements.exampleSelect.value = viewModel.state.exampleId ?? "";
   syncToolButtons(viewModel.state.placement.kind, elements.toolButtons);
@@ -346,13 +348,14 @@ function syncControls(
   if (!selectedElement) {
     elements.selectedCard.classList.add("is-hidden");
   } else {
+    const selectionChanged = selectedElement.id !== previousSelectedElementId;
     elements.selectedCard.classList.remove("is-hidden");
     elements.selectedTitle.textContent = FLOW_KIND_LABELS[selectedElement.kind];
     elements.selectedSummary.textContent = elementSummary(selectedElement);
     elements.selectedMagnitudeLabel.innerHTML = mathMarkupForMagnitudeVariable(selectedElement.kind);
-    syncNumericInput(elements.selectedMagnitudeInput, getPrimaryMagnitude(selectedElement));
+    syncNumericInput(elements.selectedMagnitudeInput, getPrimaryMagnitude(selectedElement), selectionChanged);
     elements.selectedAngleField.classList.toggle("is-hidden", !hasAngleParameter(selectedElement.kind));
-    syncNumericInput(elements.selectedAngleInput, getElementAngleDeg(selectedElement));
+    syncNumericInput(elements.selectedAngleInput, getElementAngleDeg(selectedElement), selectionChanged);
   }
 
   elements.animationToggle.checked = viewModel.state.animationEnabled;
@@ -444,8 +447,8 @@ function syncCanvasCursor(canvas: HTMLCanvasElement, isDraggingElement: boolean)
   canvas.style.cursor = "crosshair";
 }
 
-function syncNumericInput(input: HTMLInputElement, value: number): void {
-  if (document.activeElement === input) {
+function syncNumericInput(input: HTMLInputElement, value: number, force = false): void {
+  if (!force && document.activeElement === input) {
     return;
   }
 

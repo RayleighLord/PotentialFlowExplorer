@@ -66,6 +66,42 @@ describe("generateAutoStreamlineSeeds", () => {
     expect(ys[ys.length - 1]).toBeCloseTo(4, 6);
   });
 
+  it("keeps rotated uniform-flow seeds evenly spaced while covering the visible cross-stream span", () => {
+    const uniform = {
+      id: "uniform-rotated",
+      kind: "uniform" as const,
+      anchor: { x: 0, y: 0 },
+      visible: true,
+      speed: 1,
+      angleDeg: 45
+    };
+    const bounds = { xMin: -4, xMax: 4, yMin: -4, yMax: 4 };
+    const seeds = generateAutoStreamlineSeeds(
+      createFlowField([uniform]),
+      [uniform],
+      bounds,
+      []
+    );
+    const normal = {
+      x: -Math.sin(Math.PI / 4),
+      y: Math.cos(Math.PI / 4)
+    };
+    const direction = {
+      x: Math.cos(Math.PI / 4),
+      y: Math.sin(Math.PI / 4)
+    };
+    const normalOffsets = seeds
+      .map((seed) => seed.x * normal.x + seed.y * normal.y)
+      .sort((left, right) => left - right);
+    const axialCoordinates = seeds.map((seed) => seed.x * direction.x + seed.y * direction.y);
+
+    expect(seeds.length).toBeGreaterThanOrEqual(30);
+    expect(spacingVariation(normalOffsets)).toBeLessThan(0.001);
+    expect(normalOffsets[1] - normalOffsets[0]).toBeCloseTo(0.25, 6);
+    expect(normalOffsets[normalOffsets.length - 1] - normalOffsets[0]).toBeGreaterThan(10.5);
+    expect(Math.max(...axialCoordinates) - Math.min(...axialCoordinates)).toBeLessThan(0.05);
+  });
+
   it("places vortex seeds on evenly spaced left and right horizontal rays", () => {
     const vortex = {
       id: "vortex",

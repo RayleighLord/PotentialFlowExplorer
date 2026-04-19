@@ -64,30 +64,22 @@ function createElementSeedCandidates(element: FlowElement, bounds: Bounds): Poin
 function createUniformSeeds(angleDeg: number, bounds: Bounds, span: number): Point[] {
   const direction = unitFromAngle(angleDeg);
   const normal = perpendicular(direction);
-  const center = boundsCenter(bounds);
-  const upstreamDistance = distanceToBounds(center, negate(direction), bounds) * 0.88;
-  const origin = {
-    x: center.x - direction.x * upstreamDistance,
-    y: center.y - direction.y * upstreamDistance
-  };
-  const rawNegativeSpan = distanceToBounds(origin, negate(normal), bounds);
-  const rawPositiveSpan = distanceToBounds(origin, normal, bounds);
+  const spacing = (majorGridStep(bounds) / 6) * UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE;
 
   if (isCardinalAngle(angleDeg)) {
-    const spacing = (majorGridStep(bounds) / 6) * UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE;
+    const center = boundsCenter(bounds);
+    const upstreamDistance = distanceToBounds(center, negate(direction), bounds) * 0.88;
+    const origin = {
+      x: center.x - direction.x * upstreamDistance,
+      y: center.y - direction.y * upstreamDistance
+    };
+    const rawNegativeSpan = distanceToBounds(origin, negate(normal), bounds);
+    const rawPositiveSpan = distanceToBounds(origin, normal, bounds);
+
     return createGridAlignedLineCandidates(origin, normal, rawNegativeSpan, rawPositiveSpan, spacing);
   }
 
-  const negativeSpan = rawNegativeSpan * 0.96;
-  const positiveSpan = rawPositiveSpan * 0.96;
-  const totalCrossSpan = negativeSpan + positiveSpan;
-  const count = countFromSpan(
-    totalCrossSpan,
-    Math.max(span * 0.06, 0.45) / STREAMLINE_DENSITY_MULTIPLIER,
-    28,
-    72
-  );
-  return createBalancedLineCandidates(origin, normal, -negativeSpan, positiveSpan, count);
+  return createProjectedUniformLineCandidates(bounds, normal, spacing);
 }
 
 function createSourceSinkSeeds(anchor: Point, coreRadius: number, span: number): Point[] {
@@ -378,6 +370,44 @@ function createFixedSpacingRadialCandidates(
     points.push({
       x: anchor.x + direction.x * radius,
       y: anchor.y + direction.y * radius
+    });
+  }
+
+  return points;
+}
+
+function createProjectedUniformLineCandidates(
+  bounds: Bounds,
+  normal: Point,
+  spacing: number
+): Point[] {
+  const center = boundsCenter(bounds);
+  const startOffset = -distanceToBounds(center, negate(normal), bounds);
+  const endOffset = distanceToBounds(center, normal, bounds);
+  const origin = {
+    x: center.x,
+    y: center.y
+  };
+
+  return createAlignedLineCandidates(origin, normal, startOffset, endOffset, spacing);
+}
+
+function createAlignedLineCandidates(
+  origin: Point,
+  direction: Point,
+  startOffset: number,
+  endOffset: number,
+  spacing: number
+): Point[] {
+  const safeSpacing = Math.max(spacing, 1e-6);
+  const points: Point[] = [];
+  const start = Math.ceil(startOffset / safeSpacing) * safeSpacing;
+  const end = Math.floor(endOffset / safeSpacing) * safeSpacing;
+
+  for (let offset = start; offset <= end + 1e-9; offset += safeSpacing) {
+    points.push({
+      x: origin.x + direction.x * offset,
+      y: origin.y + direction.y * offset
     });
   }
 

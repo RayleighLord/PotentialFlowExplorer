@@ -187,8 +187,7 @@ export const EXAMPLE_PRESETS: ExamplePreset[] = [
       createUniformFlow("oval-uniform", DEFAULT_UNIFORM_ANCHOR, 1.0, 0),
       createSource("oval-source", { x: -1.55, y: 0 }, 5.2, 0.14),
       createSink("oval-sink", { x: 1.55, y: 0 }, 5.2, 0.14)
-    ],
-    streamlineSeeds: createScaledSeedGrid(boundsFromView(DEFAULT_CENTER, 7.6, 1.6), 9, 6)
+    ]
   }
 ];
 
@@ -316,37 +315,29 @@ function createScaledSeedGrid(
 function createUniformSeedLine(
   bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
   angleDeg: number,
-  count: number
+  _count: number
 ): StreamlineSeed[] {
   const direction = unitFromAngle(angleDeg);
   const normal = perpendicular(direction);
-  const center = {
-    x: 0.5 * (bounds.xMin + bounds.xMax),
-    y: 0.5 * (bounds.yMin + bounds.yMax)
-  };
-  const upstreamDistance = distanceToBounds(center, negate(direction), bounds) * 0.88;
-  const origin = {
-    x: center.x - direction.x * upstreamDistance,
-    y: center.y - direction.y * upstreamDistance
-  };
-  const rawNegativeSpan = distanceToBounds(origin, negate(normal), bounds);
-  const rawPositiveSpan = distanceToBounds(origin, normal, bounds);
+  const spacing = (majorGridStep(bounds) / 6) * UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE;
 
   if (isCardinalAngle(angleDeg)) {
-    const spacing = (majorGridStep(bounds) / 6) * UNIFORM_MINOR_GRID_BLOCKS_PER_STREAMLINE;
+    const center = {
+      x: 0.5 * (bounds.xMin + bounds.xMax),
+      y: 0.5 * (bounds.yMin + bounds.yMax)
+    };
+    const upstreamDistance = distanceToBounds(center, negate(direction), bounds) * 0.88;
+    const origin = {
+      x: center.x - direction.x * upstreamDistance,
+      y: center.y - direction.y * upstreamDistance
+    };
+    const rawNegativeSpan = distanceToBounds(origin, negate(normal), bounds);
+    const rawPositiveSpan = distanceToBounds(origin, normal, bounds);
+
     return createGridAlignedLineSeeds(origin, normal, rawNegativeSpan, rawPositiveSpan, spacing, "preset-seed");
   }
 
-  const negativeSpan = rawNegativeSpan * 0.96;
-  const positiveSpan = rawPositiveSpan * 0.96;
-  return createLineSeeds(
-    origin,
-    normal,
-    -negativeSpan,
-    positiveSpan,
-    count * STREAMLINE_DENSITY_MULTIPLIER,
-    "preset-seed"
-  );
+  return createProjectedUniformSeedLine(bounds, normal, spacing, "preset-seed");
 }
 
 function createLineSeeds(
@@ -387,6 +378,40 @@ function createGridAlignedLineSeeds(
       id: `${idPrefix}-${counter}`,
       x: origin.x + direction.x * offset,
       y: origin.y + direction.y * offset
+    });
+    counter += 1;
+  }
+
+  return seeds;
+}
+
+function createProjectedUniformSeedLine(
+  bounds: { xMin: number; xMax: number; yMin: number; yMax: number },
+  normal: Point,
+  spacing: number,
+  idPrefix: string
+): StreamlineSeed[] {
+  const center = {
+    x: 0.5 * (bounds.xMin + bounds.xMax),
+    y: 0.5 * (bounds.yMin + bounds.yMax)
+  };
+  const origin = {
+    x: center.x,
+    y: center.y
+  };
+  const startOffset = -distanceToBounds(center, negate(normal), bounds);
+  const endOffset = distanceToBounds(center, normal, bounds);
+  const safeSpacing = Math.max(spacing, 1e-6);
+  const start = Math.ceil(startOffset / safeSpacing) * safeSpacing;
+  const end = Math.floor(endOffset / safeSpacing) * safeSpacing;
+  const seeds: StreamlineSeed[] = [];
+  let counter = 1;
+
+  for (let offset = start; offset <= end + 1e-9; offset += safeSpacing) {
+    seeds.push({
+      id: `${idPrefix}-${counter}`,
+      x: origin.x + normal.x * offset,
+      y: origin.y + normal.y * offset
     });
     counter += 1;
   }

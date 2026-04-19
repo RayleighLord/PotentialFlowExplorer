@@ -46,4 +46,15 @@ describe("example presets", () => {
     ]);
     expect(viewModel.streamlines.length).toBeGreaterThan(0);
   });
+
+  it("loads the Rankine oval with automatic streamline seeding", () => {
+    const controller = new AppController();
+    controller.loadExample("rankine-oval");
+
+    const viewModel = controller.getViewModel();
+
+    expect(viewModel.state.streamlineSeeds).toHaveLength(0);
+    expect(viewModel.state.autoStreamlinesEnabled).toBe(true);
+    expect(viewModel.streamlines.length).toBeGreaterThan(0);
+  });
 });
