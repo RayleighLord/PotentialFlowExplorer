@@ -30,6 +30,8 @@ const DEFAULT_VIEW_RESET: ViewResetSnapshot = {
   center: { x: 0, y: 0 },
   worldHeight: 8
 };
+const MIN_WORLD_HEIGHT = 1.5;
+const MAX_WORLD_HEIGHT = 30;
 
 export class AppController {
   private state: AppState;
@@ -39,6 +41,13 @@ export class AppController {
   private streamlineCounter = 1;
   private baseViewReset: ViewResetSnapshot = { ...DEFAULT_VIEW_RESET };
   private readonly baseViewAspect: number;
+  private autoStreamlineCache: {
+    elementsRef: AppState["elements"];
+    guidesRef: AppState["guides"];
+    seedBounds: Bounds;
+    referenceWorldHeight: number;
+    streamlines: ViewModel["streamlines"];
+  } | null = null;
 
   constructor(initialState = createDefaultState()) {
     this.state = initialState;
@@ -70,8 +79,13 @@ export class AppController {
     this.state = {
       ...this.state,
       view: {
-        ...this.state.view,
-        aspect
+        ...clampViewToPanDomain(
+          {
+            ...this.state.view,
+            aspect
+          },
+          this.baseViewReset
+        )
       }
     };
     this.refresh();
@@ -235,7 +249,7 @@ export class AppController {
   }
 
   zoomAt(anchor: Point, zoomFactor: number): void {
-    const nextWorldHeight = clamp(this.state.view.worldHeight * zoomFactor, 1.5, 30);
+    const nextWorldHeight = clamp(this.state.view.worldHeight * zoomFactor, MIN_WORLD_HEIGHT, MAX_WORLD_HEIGHT);
     const boundsBefore = deriveBounds(this.state);
     const boundsAfter = {
       xMin: 0,
@@ -259,11 +273,14 @@ export class AppController {
 
     this.state = {
       ...this.state,
-      view: {
-        ...this.state.view,
-        center: nextCenter,
-        worldHeight: nextWorldHeight
-      }
+      view: clampViewToPanDomain(
+        {
+          ...this.state.view,
+          center: nextCenter,
+          worldHeight: nextWorldHeight
+        },
+        this.baseViewReset
+      )
     };
     this.refresh();
   }
@@ -271,13 +288,16 @@ export class AppController {
   panBy(deltaWorld: Point): void {
     this.state = {
       ...this.state,
-      view: {
-        ...this.state.view,
-        center: {
-          x: this.state.view.center.x + deltaWorld.x,
-          y: this.state.view.center.y + deltaWorld.y
-        }
-      }
+      view: clampViewToPanDomain(
+        {
+          ...this.state.view,
+          center: {
+            x: this.state.view.center.x + deltaWorld.x,
+            y: this.state.view.center.y + deltaWorld.y
+          }
+        },
+        this.baseViewReset
+      )
     };
     this.refresh();
   }
@@ -294,7 +314,7 @@ export class AppController {
       exampleId: null,
       elements: [...this.state.elements, element],
       autoStreamlinesEnabled: true,
-      selectedElementId: element.id
+      selectedElementId: this.state.selectedElementId
     };
     this.refresh();
   }
@@ -384,20 +404,28 @@ export class AppController {
   private buildViewModel(state: AppState): ViewModel {
     const flowField = createFlowField(state.elements);
     const visibleBounds = deriveBounds(state);
+    const navigationBounds = derivePanDomain(this.baseViewReset, state.view.aspect);
     const streamlineSeedBounds = deriveStreamlineBounds(
       state,
       this.baseViewReset,
       this.baseViewAspect
     );
-    const streamlineSolveBounds = unionBounds(streamlineSeedBounds, visibleBounds);
     const fieldStats = computeFieldStats(flowField, visibleBounds);
     const stagnationPoints = findStagnationPoints(flowField, visibleBounds);
-    const autoSeeds = state.autoStreamlinesEnabled
-      ? generateAutoStreamlineSeeds(flowField, state.elements, streamlineSeedBounds, state.guides)
+    const manualSolveBounds = unionBounds(streamlineSeedBounds, navigationBounds);
+    const autoStreamlines = state.autoStreamlinesEnabled
+      ? this.getAutoStreamlines(
+          state,
+          flowField,
+          visibleBounds,
+          navigationBounds,
+          stagnationPoints
+        )
       : [];
-    const streamlines = [...autoSeeds, ...state.streamlineSeeds].map((seed) =>
-      solveStreamline(seed, streamlineSolveBounds, flowField, state.guides)
+    const manualStreamlines = state.streamlineSeeds.map((seed) =>
+      solveStreamline(seed, manualSolveBounds, flowField, state.guides)
     );
+    const streamlines = [...autoStreamlines, ...manualStreamlines];
 
     return {
       state,
@@ -407,6 +435,45 @@ export class AppController {
       stagnationPoints,
       streamlines
     };
+  }
+
+  private getAutoStreamlines(
+    state: AppState,
+    flowField: ViewModel["flowField"],
+    visibleBounds: Bounds,
+    navigationBounds: Bounds,
+    stagnationPoints: ViewModel["stagnationPoints"]
+  ): ViewModel["streamlines"] {
+    if (
+      this.autoStreamlineCache &&
+      this.autoStreamlineCache.elementsRef === state.elements &&
+      this.autoStreamlineCache.guidesRef === state.guides &&
+      isBoundsInside(visibleBounds, shrinkBounds(this.autoStreamlineCache.seedBounds, 0.06)) &&
+      state.view.worldHeight >= this.autoStreamlineCache.referenceWorldHeight * 0.78 &&
+      state.view.worldHeight <= this.autoStreamlineCache.referenceWorldHeight * 1.28
+    ) {
+      return this.autoStreamlineCache.streamlines;
+    }
+
+    const autoSeedBounds = clampBoundsToDomain(expandBounds(visibleBounds, 0.12), navigationBounds);
+    const autoSolveBounds = clampBoundsToDomain(expandBounds(autoSeedBounds, 0.22), navigationBounds);
+    const streamlines = generateAutoStreamlineSeeds(
+      flowField,
+      state.elements,
+      autoSeedBounds,
+      state.guides,
+      stagnationPoints
+    ).map((seed) => solveStreamline(seed, autoSolveBounds, flowField, state.guides));
+
+    this.autoStreamlineCache = {
+      elementsRef: state.elements,
+      guidesRef: state.guides,
+      seedBounds: autoSeedBounds,
+      referenceWorldHeight: state.view.worldHeight,
+      streamlines
+    };
+
+    return streamlines;
   }
 }
 
@@ -435,7 +502,7 @@ export function createDefaultState(): AppState {
     showHeatmap: true,
     showMarkers: true,
     showStagnationPoints: true,
-    particleDensity: 1.2,
+    particleDensity: 2.4,
     exampleId: null
   };
 }
@@ -448,6 +515,91 @@ function deriveBounds(state: AppState): Bounds {
     yMin: state.view.center.y - state.view.worldHeight / 2,
     yMax: state.view.center.y + state.view.worldHeight / 2
   } satisfies Bounds;
+}
+
+function deriveBoundsFromView(
+  view: Pick<AppState["view"], "center" | "worldHeight" | "aspect">
+): Bounds {
+  const worldWidth = view.worldHeight * view.aspect;
+  return {
+    xMin: view.center.x - worldWidth / 2,
+    xMax: view.center.x + worldWidth / 2,
+    yMin: view.center.y - view.worldHeight / 2,
+    yMax: view.center.y + view.worldHeight / 2
+  } satisfies Bounds;
+}
+
+function clampViewToPanDomain(
+  view: AppState["view"],
+  baseViewReset: ViewResetSnapshot
+): AppState["view"] {
+  const panDomain = derivePanDomain(baseViewReset, view.aspect);
+  const currentBounds = deriveBoundsFromView(view);
+  const halfWidth = (currentBounds.xMax - currentBounds.xMin) / 2;
+  const halfHeight = (currentBounds.yMax - currentBounds.yMin) / 2;
+  const minCenterX = panDomain.xMin + halfWidth;
+  const maxCenterX = panDomain.xMax - halfWidth;
+  const minCenterY = panDomain.yMin + halfHeight;
+  const maxCenterY = panDomain.yMax - halfHeight;
+
+  return {
+    ...view,
+    center: {
+      x: clamp(view.center.x, minCenterX, maxCenterX),
+      y: clamp(view.center.y, minCenterY, maxCenterY)
+    }
+  };
+}
+
+function derivePanDomain(
+  baseViewReset: ViewResetSnapshot,
+  aspect: number
+): Bounds {
+  return deriveBoundsFromView({
+    center: baseViewReset.center,
+    worldHeight: MAX_WORLD_HEIGHT,
+    aspect
+  });
+}
+
+function expandBounds(bounds: Bounds, relativeMargin: number): Bounds {
+  const marginX = (bounds.xMax - bounds.xMin) * relativeMargin;
+  const marginY = (bounds.yMax - bounds.yMin) * relativeMargin;
+  return {
+    xMin: bounds.xMin - marginX,
+    xMax: bounds.xMax + marginX,
+    yMin: bounds.yMin - marginY,
+    yMax: bounds.yMax + marginY
+  } satisfies Bounds;
+}
+
+function clampBoundsToDomain(bounds: Bounds, domain: Bounds): Bounds {
+  return {
+    xMin: clamp(bounds.xMin, domain.xMin, domain.xMax),
+    xMax: clamp(bounds.xMax, domain.xMin, domain.xMax),
+    yMin: clamp(bounds.yMin, domain.yMin, domain.yMax),
+    yMax: clamp(bounds.yMax, domain.yMin, domain.yMax)
+  } satisfies Bounds;
+}
+
+function shrinkBounds(bounds: Bounds, relativeMargin: number): Bounds {
+  const marginX = (bounds.xMax - bounds.xMin) * relativeMargin;
+  const marginY = (bounds.yMax - bounds.yMin) * relativeMargin;
+  return {
+    xMin: bounds.xMin + marginX,
+    xMax: bounds.xMax - marginX,
+    yMin: bounds.yMin + marginY,
+    yMax: bounds.yMax - marginY
+  } satisfies Bounds;
+}
+
+function isBoundsInside(inner: Bounds, outer: Bounds): boolean {
+  return (
+    inner.xMin >= outer.xMin &&
+    inner.xMax <= outer.xMax &&
+    inner.yMin >= outer.yMin &&
+    inner.yMax <= outer.yMax
+  );
 }
 
 function deriveStreamlineBounds(

@@ -6,6 +6,9 @@ import type { ClickMode, FlowElementKind, Point, ViewModel } from "./types";
 
 interface DragState {
   elementId: string;
+  originClient: Point;
+  toggleSelectionOnRelease: boolean;
+  hasMoved: boolean;
 }
 
 interface PanState {
@@ -13,6 +16,7 @@ interface PanState {
 }
 
 type InteractionMode = ClickMode | "pan";
+const DRAG_START_THRESHOLD_PX = 4;
 
 export function startApp(): void {
   const stage = getElement<HTMLDivElement>("stage");
@@ -197,7 +201,7 @@ export function startApp(): void {
       controller.deleteElement(id);
       return;
     }
-    controller.setSelectedElementId(id);
+    controller.setSelectedElementId(currentViewModel.state.selectedElementId === id ? null : id);
   });
 
   flowCanvas.addEventListener("pointerdown", (event) => {
@@ -230,10 +234,16 @@ export function startApp(): void {
     }
 
     if (hit) {
+      const wasSelected = currentViewModel.state.selectedElementId === hit.id;
       controller.setSelectedElementId(hit.id);
-      dragState = { elementId: hit.id };
+      dragState = {
+        elementId: hit.id,
+        originClient: { x: event.clientX, y: event.clientY },
+        toggleSelectionOnRelease: wasSelected,
+        hasMoved: false
+      };
       flowCanvas.setPointerCapture(event.pointerId);
-      syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, true, !!panState, spacePanActive);
+      syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, false, !!panState, spacePanActive);
       return;
     }
 
@@ -258,6 +268,21 @@ export function startApp(): void {
     }
 
     if (dragState && world) {
+      if (!dragState.hasMoved) {
+        const dragDistance = Math.hypot(
+          event.clientX - dragState.originClient.x,
+          event.clientY - dragState.originClient.y
+        );
+        if (dragDistance < DRAG_START_THRESHOLD_PX) {
+          return;
+        }
+        dragState = {
+          ...dragState,
+          hasMoved: true
+        };
+        syncCanvasCursor(flowCanvas, currentViewModel.state.clickMode, true, !!panState, spacePanActive);
+      }
+
       const anchor = currentViewModel.state.snapToGrid
         ? snapPointToGrid(world, renderer.estimateGridStep())
         : world;
@@ -281,6 +306,9 @@ export function startApp(): void {
   });
 
   flowCanvas.addEventListener("pointerup", (event) => {
+    if (dragState && !dragState.hasMoved && dragState.toggleSelectionOnRelease) {
+      controller.setSelectedElementId(null);
+    }
     dragState = null;
     panState = null;
     if (flowCanvas.hasPointerCapture(event.pointerId)) {
@@ -322,7 +350,14 @@ export function startApp(): void {
     { passive: false }
   );
 
-  stage.addEventListener("dblclick", () => {
+  flowCanvas.addEventListener("dblclick", (event) => {
+    const world = renderer.clientToWorld(event.clientX, event.clientY);
+    if (!world) {
+      return;
+    }
+    if (renderer.hitTestElement(world)) {
+      return;
+    }
     controller.resetView();
   });
 }

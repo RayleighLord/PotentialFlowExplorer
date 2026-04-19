@@ -19,6 +19,10 @@ const STREAMLINE_GLOW = "rgba(53, 149, 255, 0.14)";
 const GUIDE_COLOR = "rgba(180, 221, 255, 0.75)";
 const SOLID_FILL = "rgba(7, 11, 18, 0.96)";
 const STAGNATION_COLOR = "rgba(255, 205, 124, 0.95)";
+const MARKER_RADIUS_WORLD = 0.085;
+const MARKER_FONT_SIZE_WORLD = 0.108;
+const MARKER_ARROW_LENGTH_WORLD = 0.142;
+const SELECTED_STROKE = "rgb(255, 255, 255)";
 
 export class PotentialFlowRenderer {
   private readonly sceneCanvas: HTMLCanvasElement;
@@ -492,7 +496,6 @@ export class PotentialFlowRenderer {
     selectedElementId: string | null
   ): void {
     context.save();
-    context.font = "600 12px Inter, system-ui, sans-serif";
     context.textAlign = "center";
     context.textBaseline = "middle";
 
@@ -502,24 +505,26 @@ export class PotentialFlowRenderer {
       }
 
       const center = worldToScreen(element.anchor, this.viewport);
-      const radius = selectedElementId === element.id ? 12 : 9.5;
+      const radius = MARKER_RADIUS_WORLD * this.viewport.pixelsPerUnit;
+      const fontSize = markerFontSize(element) * this.viewport.pixelsPerUnit;
 
       context.beginPath();
       context.arc(center.x, center.y, radius, 0, Math.PI * 2);
       context.fillStyle = markerFill(element.kind);
       context.fill();
-      context.lineWidth = selectedElementId === element.id ? 2 : 1.25;
-      context.strokeStyle = selectedElementId === element.id ? "rgba(255,255,255,0.92)" : "rgba(222, 239, 255, 0.75)";
+      context.lineWidth = selectedElementId === element.id ? 3.1 : 1.35;
+      context.strokeStyle = selectedElementId === element.id ? SELECTED_STROKE : "rgb(222, 239, 255)";
       context.stroke();
 
-      context.fillStyle = "rgba(245, 251, 255, 0.96)";
+      context.font = `600 ${fontSize.toFixed(2)}px Inter, system-ui, sans-serif`;
+      context.fillStyle = "rgb(245, 251, 255)";
       context.fillText(markerGlyph(element), center.x, center.y + 0.5);
 
       if (element.kind === "uniform" || element.kind === "doublet") {
         const angleDeg = element.kind === "uniform" ? element.angleDeg : element.angleDeg;
         const angle = (angleDeg * Math.PI) / 180;
-        const arrowLength = 16;
-        context.strokeStyle = "rgba(197, 231, 255, 0.82)";
+        const arrowLength = MARKER_ARROW_LENGTH_WORLD * this.viewport.pixelsPerUnit;
+        context.strokeStyle = "rgb(197, 231, 255)";
         context.lineWidth = 1.3;
         context.beginPath();
         context.moveTo(center.x, center.y);
@@ -600,17 +605,31 @@ function markerGlyph(element: FlowElement): string {
 function markerFill(kind: FlowElement["kind"]): string {
   switch (kind) {
     case "uniform":
-      return "rgba(77, 164, 255, 0.82)";
+      return "rgb(77, 164, 255)";
     case "source":
-      return "rgba(66, 214, 255, 0.78)";
+      return "rgb(255, 132, 132)";
     case "sink":
-      return "rgba(38, 138, 214, 0.78)";
+      return "rgb(24, 98, 196)";
     case "vortex":
-      return "rgba(99, 119, 255, 0.82)";
+      return "rgb(99, 119, 255)";
     case "doublet":
-      return "rgba(87, 199, 255, 0.82)";
+      return "rgb(87, 199, 255)";
     default:
       return assertNever(kind);
+  }
+}
+
+function markerFontSize(element: FlowElement): number {
+  switch (element.kind) {
+    case "source":
+    case "sink":
+      return MARKER_FONT_SIZE_WORLD * 1.22;
+    case "uniform":
+    case "vortex":
+    case "doublet":
+      return MARKER_FONT_SIZE_WORLD;
+    default:
+      return assertNever(element);
   }
 }
 

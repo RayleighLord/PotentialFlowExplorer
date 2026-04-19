@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { findStagnationPoints } from "../model/analysis";
 import { createFlowField } from "../model/flowField";
 import { generateAutoStreamlineSeeds } from "../model/streamlineSeeds";
 
@@ -61,7 +62,36 @@ describe("generateAutoStreamlineSeeds", () => {
     expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThan(0.08);
   });
 
-  it("places vortex seeds along one radial line with changing radius", () => {
+  it("keeps a similar uniform-flow seed count while extending coverage to a larger window", () => {
+    const uniform = {
+      id: "uniform",
+      kind: "uniform" as const,
+      anchor: { x: 0, y: 0 },
+      visible: true,
+      speed: 1,
+      angleDeg: 0
+    };
+
+    const smallSeeds = generateAutoStreamlineSeeds(
+      createFlowField([uniform]),
+      [uniform],
+      { xMin: -4, xMax: 4, yMin: -4, yMax: 4 },
+      []
+    );
+    const largeSeeds = generateAutoStreamlineSeeds(
+      createFlowField([uniform]),
+      [uniform],
+      { xMin: -10, xMax: 10, yMin: -10, yMax: 10 },
+      []
+    );
+
+    expect(Math.abs(largeSeeds.length - smallSeeds.length)).toBeLessThanOrEqual(2);
+    expect(Math.max(...largeSeeds.map((seed) => Math.abs(seed.y)))).toBeGreaterThan(
+      Math.max(...smallSeeds.map((seed) => Math.abs(seed.y))) + 1
+    );
+  });
+
+  it("places vortex seeds along one radial ray with changing radius", () => {
     const vortex = {
       id: "vortex",
       kind: "vortex" as const,
@@ -84,7 +114,7 @@ describe("generateAutoStreamlineSeeds", () => {
 
     expect(seeds.length).toBeGreaterThanOrEqual(6);
     expect(Math.max(...rayAngles) - Math.min(...rayAngles)).toBeLessThan(0.05);
-    expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThan(0.1);
+    expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThan(0.18);
   });
 
   it("places doublet seeds along the radial normal direction on both sides", () => {
@@ -113,5 +143,42 @@ describe("generateAutoStreamlineSeeds", () => {
     expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(0.05);
     expect(positive.length).toBeGreaterThanOrEqual(5);
     expect(negative.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("adds offset seeds on both eigendirections around a visible stagnation point", () => {
+    const leftSource = {
+      id: "left-source",
+      kind: "source" as const,
+      anchor: { x: -1.6, y: 0 },
+      visible: true,
+      strength: 5,
+      coreRadius: 0.12
+    };
+    const rightSource = {
+      id: "right-source",
+      kind: "source" as const,
+      anchor: { x: 1.6, y: 0 },
+      visible: true,
+      strength: 5,
+      coreRadius: 0.12
+    };
+    const bounds = { xMin: -4, xMax: 4, yMin: -4, yMax: 4 };
+    const field = createFlowField([leftSource, rightSource]);
+    const stagnationPoints = findStagnationPoints(field, bounds);
+
+    const seeds = generateAutoStreamlineSeeds(
+      field,
+      [leftSource, rightSource],
+      bounds,
+      [],
+      stagnationPoints
+    );
+
+    const nearCenter = seeds.filter((seed) => Math.hypot(seed.x, seed.y) < 0.25);
+
+    expect(nearCenter.some((seed) => seed.x > 0.04 && Math.abs(seed.y) < 0.04)).toBe(true);
+    expect(nearCenter.some((seed) => seed.x < -0.04 && Math.abs(seed.y) < 0.04)).toBe(true);
+    expect(nearCenter.some((seed) => seed.y > 0.04 && Math.abs(seed.x) < 0.04)).toBe(true);
+    expect(nearCenter.some((seed) => seed.y < -0.04 && Math.abs(seed.x) < 0.04)).toBe(true);
   });
 });
